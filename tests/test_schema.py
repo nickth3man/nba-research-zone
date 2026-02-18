@@ -1,8 +1,8 @@
 """Tests for database schema and migrations."""
 
 import sqlite3
+
 import pytest
-from pathlib import Path
 
 
 def test_database_initialization(temp_db_path):
@@ -16,9 +16,7 @@ def test_database_initialization(temp_db_path):
 
     # Verify tables exist
     conn = sqlite3.connect(temp_db_path)
-    cursor = conn.execute(
-        "SELECT name FROM sqlite_master WHERE type='table' ORDER BY name"
-    )
+    cursor = conn.execute("SELECT name FROM sqlite_master WHERE type='table' ORDER BY name")
     tables = [row[0] for row in cursor.fetchall()]
 
     # Check core tables exist
@@ -91,9 +89,7 @@ def test_indexes_created(temp_db_path):
     conn = sqlite3.connect(temp_db_path)
 
     # Check that indexes exist
-    cursor = conn.execute(
-        "SELECT name FROM sqlite_master WHERE type='index' AND name LIKE 'idx_%'"
-    )
+    cursor = conn.execute("SELECT name FROM sqlite_master WHERE type='index' AND name LIKE 'idx_%'")
     indexes = [row[0] for row in cursor.fetchall()]
 
     # Check some key indexes exist

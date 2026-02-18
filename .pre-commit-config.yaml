@@ -1,0 +1,35 @@
+repos:
+  - repo: https://github.com/astral-sh/ruff-pre-commit
+    # Keep rev in sync with `ruff>=X` in pyproject.toml [dependency-groups.dev]
+    rev: v0.15.1
+    hooks:
+      # Run linter (auto-fix safe violations, fail if any remain unfixable)
+      - id: ruff
+        args: [--fix, --exit-non-zero-on-fix]
+      # Run formatter
+      - id: ruff-format
+
+  - repo: https://github.com/sqlfluff/sqlfluff
+    rev: 4.0.4
+    hooks:
+      # Lint SQL files — runs on staged .sql files in migrations/ and duckdb/views/
+      - id: sqlfluff-lint
+        name: SQL Lint (SQLFluff)
+        description: Lint SQL files with SQLFluff
+        args: [--config, .sqlfluff]
+        types: [sql]
+        files: ^(migrations|duckdb/views)/
+
+  - repo: https://github.com/pre-commit/pre-commit-hooks
+    rev: v5.0.0
+    hooks:
+      # Catch common issues
+      - id: trailing-whitespace
+        exclude: ".*\\.md$"
+      - id: end-of-file-fixer
+      - id: check-yaml
+      - id: check-toml
+      - id: check-merge-conflict
+      - id: debug-statements    # Flag leftover breakpoint()/pdb.set_trace()
+      - id: check-added-large-files
+        args: [--maxkb=1000]

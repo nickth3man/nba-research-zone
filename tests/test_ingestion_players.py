@@ -1,14 +1,12 @@
 """Integration tests for players ingestion."""
 
 import sqlite3
-from pathlib import Path
-from unittest.mock import Mock, patch
+from unittest.mock import patch
 
 import pytest
 
 from nba_vault.ingestion.players import PlayersIngestor
 from nba_vault.models.players import BasketballReferencePlayer, PlayerCreate
-from nba_vault.schema.connection import get_db_connection
 
 
 @pytest.fixture
@@ -233,7 +231,7 @@ class TestPlayerCreate:
             "Center",
         ]
 
-        for pos, exp in zip(positions, expected):
+        for pos, exp in zip(positions, expected, strict=False):
             br_player = BasketballReferencePlayer(
                 slug=f"test{pos}01", name="Test Player", position=pos, height="6-8", weight="220"
             )
@@ -312,7 +310,9 @@ class TestPlayersIngestor:
         ingestor.upsert(validated_updated, test_db)
 
         # Verify player_id didn't change
-        cursor = test_db.execute("SELECT player_id, weight_lbs FROM player WHERE bbref_id = ?", ("jamesle01",))
+        cursor = test_db.execute(
+            "SELECT player_id, weight_lbs FROM player WHERE bbref_id = ?", ("jamesle01",)
+        )
         row = cursor.fetchone()
         assert row["player_id"] == initial_id
         assert row["weight_lbs"] == 260.0
@@ -392,7 +392,9 @@ class TestPlayersIngestionIntegration:
             }
         ]
 
-        with patch.object(ingestor.basketball_reference_client, "get_players", return_value=sample_data):
+        with patch.object(
+            ingestor.basketball_reference_client, "get_players", return_value=sample_data
+        ):
             # Fetch
             raw_data = ingestor.fetch("season", season_end_year=2024)
 

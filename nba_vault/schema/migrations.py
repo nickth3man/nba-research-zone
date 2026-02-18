@@ -1,11 +1,9 @@
 """Database schema migrations using yoyo-migrations."""
 
 from pathlib import Path
-from typing import Optional
 
 import structlog
-import yoyo import read_migrations
-from yoyo import get_backend
+from yoyo import get_backend, read_migrations
 
 logger = structlog.get_logger(__name__)
 
@@ -15,7 +13,7 @@ def get_migrations_dir() -> Path:
     return Path(__file__).parent.parent.parent / "migrations"
 
 
-def run_migrations(conn, migrations_dir: Optional[Path] = None) -> None:
+def run_migrations(conn, migrations_dir: Path | None = None) -> None:
     """
     Run pending database migrations.
 
@@ -32,7 +30,7 @@ def run_migrations(conn, migrations_dir: Optional[Path] = None) -> None:
     backend = get_backend(conn)
     migrations = read_migrations(str(migrations_dir))
 
-    if migrations to_apply := backend.to_apply(migrations):
+    if migrations_to_apply := backend.to_apply(migrations):
         logger.info("Applying migrations", count=len(migrations_to_apply))
         for migration in migrations_to_apply:
             logger.info("Applying migration", migration=migration.id)

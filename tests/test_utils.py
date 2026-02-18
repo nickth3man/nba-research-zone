@@ -1,12 +1,11 @@
 """Tests for utility functions."""
 
 import pytest
-from pathlib import Path
 
 
 def test_settings_validation():
     """Test settings validation."""
-    from nba_vault.utils.config import Settings, get_settings
+    from nba_vault.utils.config import Settings
 
     # Valid settings
     settings = Settings(
@@ -28,7 +27,7 @@ def test_settings_validation():
 
 def test_settings_caching():
     """Test that settings are cached."""
-    from nba_vault.utils.config import get_settings, Settings
+    from nba_vault.utils.config import get_settings
 
     # Clear cache first
     get_settings.cache_clear()
@@ -42,7 +41,7 @@ def test_settings_caching():
 
 def test_ensure_directories(tmp_path):
     """Test directory creation."""
-    from nba_vault.utils.config import ensure_directories, Settings
+    from nba_vault.utils.config import Settings, ensure_directories
 
     # Create settings with temp paths
     settings = Settings(
@@ -53,6 +52,7 @@ def test_ensure_directories(tmp_path):
 
     # Patch get_settings to return our test settings
     from nba_vault.utils import config
+
     original_settings = config.get_settings
     config.get_settings = lambda: settings
 

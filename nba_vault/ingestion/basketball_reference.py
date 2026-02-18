@@ -46,7 +46,7 @@ class BasketballReferenceClient:
             Exception: If data retrieval fails after retries.
         """
         try:
-            import basketball_reference_web_scraper as br_scraper
+            import basketball_reference_web_scraper as br_scraper  # noqa: PLC0415
         except ImportError as e:
             self.logger.error("basketball_reference_web_scraper not installed")
             raise ImportError(
@@ -149,7 +149,7 @@ class BasketballReferenceClient:
             Exception: If data retrieval fails after retries.
         """
         try:
-            import basketball_reference_web_scraper as br_scraper
+            import basketball_reference_web_scraper as br_scraper  # noqa: PLC0415
         except ImportError as e:
             self.logger.error("basketball_reference_web_scraper not installed")
             raise ImportError(

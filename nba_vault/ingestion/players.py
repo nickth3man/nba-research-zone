@@ -34,7 +34,9 @@ class PlayersIngestor(BaseIngestor):
         super().__init__(cache, rate_limiter)
         self.basketball_reference_client = BasketballReferenceClient(cache, rate_limiter)
 
-    def fetch(self, entity_id: str, season_end_year: int | None = None, **kwargs: Any) -> dict[str, Any]:
+    def fetch(
+        self, entity_id: str, season_end_year: int | None = None, **kwargs: Any
+    ) -> dict[str, Any]:
         """
         Fetch player data from Basketball Reference.
 
@@ -49,7 +51,7 @@ class PlayersIngestor(BaseIngestor):
         Raises:
             Exception: If fetch fails after retries.
         """
-        if entity_id == "season" or entity_id == "all":
+        if entity_id in {"season", "all"}:
             # Fetch all players for a season
             players_data = self.basketball_reference_client.get_players(season_end_year)
             return {"players": players_data, "season_end_year": season_end_year}

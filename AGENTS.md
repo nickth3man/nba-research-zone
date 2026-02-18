@@ -1,4 +1,3 @@
-
 ## Project Overview
 
 NBA Vault is a comprehensive historical NBA database system using a **dual-engine architecture**: **SQLite** as the source of truth and **DuckDB** as the analytical engine. The system covers 78+ seasons of NBA/ABA/BAA history (1946-present) with incremental updates and optimized analytical queries.
@@ -199,7 +198,10 @@ Access settings via `get_settings()` from `nba_vault.utils.config`. Settings are
 - **Environment**: `.env` - Local environment variables (not in repo)
 - **Project**: `pyproject.toml` - Dependencies, tool config (ruff, ty, sqlfluff)
 - **SQL Linting**: `.sqlfluff` - SQLFluff configuration
-- **Pre-commit**: `.pre-commit-config.yaml` - Pre-commit hooks (ruff)
+- **Pre-commit**: `.pre-commit-config.yaml` - Pre-commit hooks (ruff); note the leading dot is required
+- **Python version**: `.python-version` - Pins Python 3.12.8 for uv
+- **Editor config**: `.editorconfig` - Consistent editor settings (indent, line endings, etc.)
+- **CI**: `.github/workflows/ci.yml` - GitHub Actions CI (lint + test jobs)
 
 ### Entry Points
 
@@ -299,6 +301,37 @@ Pre-commit hooks automatically run:
 - SQLFluff linting and formatting for SQL files
 
 Install with: `uv run pre-commit install`
+
+## DX Toolchain Notes
+
+### Python Version
+
+The project targets **Python 3.12.8**, pinned via `.python-version`. The `pyproject.toml` uses `requires-python = ">=3.12,<3.13"` to prevent cross-version resolution issues with `uv`.
+
+### Ruff Configuration
+
+Ruff is configured in `pyproject.toml` with the following rule sets enabled beyond defaults:
+
+- `"S"` — bandit security checks
+- `"G"` — logging format checks
+- `"SIM"` — simplification suggestions
+
+The `target-version = "py312"` is set to match the Python version pin.
+
+### Type Checker: ty
+
+The project uses `ty` (by Astral) for type checking, version `>=0.0.1` (latest: 0.0.17 as of Feb 2026). Note: `ty>=0.2.0` does not exist — use `>=0.0.1`. Pre-existing `unresolved-import` errors for `create_ingestor` in `cli.py` are expected (the function is resolved at runtime via the registry pattern) and are not regressions.
+
+### Pre-commit Config
+
+The pre-commit config file is `.pre-commit-config.yaml` (with a leading dot). An older version without the dot (`pre-commit-config.yaml`) was renamed. Always use the dotfile name.
+
+### CI Workflow
+
+GitHub Actions CI is defined at `.github/workflows/ci.yml` with two jobs:
+
+- **lint**: Runs ruff check, ruff format --check, ty check, sqlfluff lint (both dialects)
+- **test**: Runs pytest with coverage, uploads to Codecov
 
 ## File Synchronization
 

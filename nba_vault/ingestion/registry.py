@@ -1,14 +1,12 @@
 """Registry for data ingestors."""
 
-from typing import Type
-
 from nba_vault.ingestion.base import BaseIngestor
 
 # Registry of ingestor classes
-_INGESTOR_REGISTRY: dict[str, Type[BaseIngestor]] = {}
+_INGESTOR_REGISTRY: dict[str, type[BaseIngestor]] = {}
 
 
-def register_ingestor(cls: Type[BaseIngestor]) -> Type[BaseIngestor]:
+def register_ingestor(cls: type[BaseIngestor]) -> type[BaseIngestor]:
     """
     Register an ingestor class.
 
@@ -33,7 +31,7 @@ def register_ingestor(cls: Type[BaseIngestor]) -> Type[BaseIngestor]:
     return cls
 
 
-def get_ingestor(entity_type: str) -> Type[BaseIngestor] | None:
+def get_ingestor(entity_type: str) -> type[BaseIngestor] | None:
     """
     Get an ingestor class by entity type.
 

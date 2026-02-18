@@ -6,8 +6,6 @@ from typing import Any
 
 import structlog
 
-from nba_vault.utils.config import get_settings
-
 logger = structlog.get_logger(__name__)
 
 

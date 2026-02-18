@@ -1,6 +1,6 @@
 """League models."""
 
-from pydantic import BaseModel, Field, field_validator
+from pydantic import BaseModel, Field
 
 
 class LeagueBase(BaseModel):

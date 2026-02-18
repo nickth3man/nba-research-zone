@@ -2,7 +2,6 @@
 
 import sqlite3
 from pathlib import Path
-from typing import Optional
 
 import structlog
 
@@ -11,7 +10,7 @@ from nba_vault.utils.config import get_settings
 logger = structlog.get_logger(__name__)
 
 
-def get_db_connection(db_path: Optional[Path] = None) -> sqlite3.Connection:
+def get_db_connection(db_path: Path | None = None) -> sqlite3.Connection:
     """
     Get a SQLite database connection with optimized settings.
 
@@ -42,7 +41,7 @@ def get_db_connection(db_path: Optional[Path] = None) -> sqlite3.Connection:
     return conn
 
 
-def init_database(db_path: Optional[Path] = None) -> None:
+def init_database(db_path: Path | None = None) -> None:
     """
     Initialize the database schema.
 
@@ -51,7 +50,7 @@ def init_database(db_path: Optional[Path] = None) -> None:
     Args:
         db_path: Path to the database file. If None, uses default from settings.
     """
-    from nba_vault.schema.migrations import run_migrations
+    from nba_vault.schema.migrations import run_migrations  # noqa: PLC0415
 
     conn = get_db_connection(db_path)
     try:

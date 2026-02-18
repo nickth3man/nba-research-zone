@@ -4,13 +4,12 @@ This client provides access to NBA.com's stats.nba.com API endpoints
 using the nba_api library, with caching, rate limiting, and error handling.
 """
 
-from datetime import datetime
-from typing import Any, Optional
+from typing import Any
 
 import structlog
 
 from nba_vault.utils.cache import ContentCache
-from nba_vault.utils.rate_limit import RateLimiter, retry_with_backoff
+from nba_vault.utils.rate_limit import RateLimiter
 
 logger = structlog.get_logger(__name__)
 
@@ -36,8 +35,8 @@ class NBAStatsClient:
 
     def __init__(
         self,
-        cache: Optional[ContentCache] = None,
-        rate_limiter: Optional[RateLimiter] = None,
+        cache: ContentCache | None = None,
+        rate_limiter: RateLimiter | None = None,
         timeout: int = 30,
     ):
         """
@@ -56,16 +55,16 @@ class NBAStatsClient:
         self.logger = logger.bind(component="nba_stats_client")
 
         try:
-            from nba_api.stats.endpoints import (
+            from nba_api.stats.endpoints import (  # noqa: PLC0415
+                boxscoresummaryv2,
+                leaguedashlineups,
                 leaguedashplayerstats,
                 leaguedashteamstats,
                 playerdashptstats,
                 teamdashlineups,
-                boxscoresummaryv2,
-                leaguedashlineups,
                 teamyearoveryearstats,
             )
-            from nba_api.stats.static import teams, players
+            from nba_api.stats.static import players, teams  # noqa: PLC0415
 
             self.endpoints = {
                 "leaguedashplayerstats": leaguedashplayerstats,
@@ -79,14 +78,12 @@ class NBAStatsClient:
             self.static = {"teams": teams, "players": players}
         except ImportError as e:
             self.logger.error("nba_api not installed")
-            raise ImportError(
-                "nba_api is required. Install with: pip install nba_api"
-            ) from e
+            raise ImportError("nba_api is required. Install with: pip install nba_api") from e
 
     def _make_request(
         self,
         endpoint_name: str,
-        cache_key: Optional[str] = None,
+        cache_key: str | None = None,
         **params: Any,
     ) -> dict[str, Any]:
         """
@@ -450,7 +447,7 @@ class NBAStatsClient:
             last_n_games=last_n_games,
         )
 
-    def get_team_id_by_abbreviation(self, abbreviation: str) -> Optional[int]:
+    def get_team_id_by_abbreviation(self, abbreviation: str) -> int | None:
         """
         Get NBA team ID from abbreviation.
 
@@ -469,7 +466,7 @@ class NBAStatsClient:
             self.logger.error("Failed to get team ID", abbreviation=abbreviation, error=str(e))
         return None
 
-    def get_player_id_by_name(self, full_name: str) -> Optional[int]:
+    def get_player_id_by_name(self, full_name: str) -> int | None:
         """
         Get NBA player ID from full name.
 

@@ -38,7 +38,6 @@ class RateLimiter:
         Returns:
             True if request is allowed, False otherwise.
         """
-        settings = get_settings()
         current = time.time()
         time_passed = current - self.last_check
         self.last_check = current
@@ -46,8 +45,7 @@ class RateLimiter:
         # Refill allowance based on time passed
         self.allowance += time_passed * (self.rate / self.per)
 
-        if self.allowance > self.rate:
-            self.allowance = self.rate
+        self.allowance = min(self.allowance, self.rate)
 
         if self.allowance < 1.0:
             if not block:
@@ -55,7 +53,7 @@ class RateLimiter:
 
             # Calculate wait time with jitter
             sleep_time = (self.per - self.allowance * (self.per / self.rate)) / 2
-            jitter = random.uniform(0.8, 1.2)  # ±20% jitter
+            jitter = random.uniform(0.8, 1.2)  # ±20% jitter  # noqa: S311
             sleep_time *= jitter
 
             logger.debug(
@@ -114,7 +112,7 @@ def retry_with_backoff(
 
             # Calculate exponential backoff with jitter
             delay = base_delay * (2 ** (attempt - 1))
-            jitter = random.uniform(0.8, 1.2)
+            jitter = random.uniform(0.8, 1.2)  # noqa: S311
             actual_delay = delay * jitter
 
             logger.warning(

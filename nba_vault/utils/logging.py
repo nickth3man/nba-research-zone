@@ -1,11 +1,14 @@
 """Structured logging configuration."""
 
-import sys
+from __future__ import annotations
+
 from pathlib import Path
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 import structlog
-from structlog.types import EventDict, Processor
+
+if TYPE_CHECKING:
+    from structlog.types import Processor
 
 from nba_vault.utils.config import get_settings
 

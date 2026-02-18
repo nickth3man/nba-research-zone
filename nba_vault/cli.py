@@ -5,11 +5,11 @@ from pathlib import Path
 import structlog
 import typer
 
+from nba_vault.duckdb.builder import build_duckdb_database
+from nba_vault.schema.connection import get_db_connection, init_database
+from nba_vault.schema.migrations import rollback_migration
 from nba_vault.utils.config import ensure_directories, get_settings
 from nba_vault.utils.logging import setup_logging
-from nba_vault.schema.connection import init_database, get_db_connection
-from nba_vault.schema.migrations import rollback_migration
-from nba_vault.duckdb.builder import build_duckdb_database
 
 app = typer.Typer(
     name="nba-vault",
@@ -44,7 +44,7 @@ def init(
     except Exception as e:
         logger.error("Failed to initialize database", error=str(e))
         typer.echo(f"✗ Failed to initialize database: {e}", err=True)
-        raise typer.Exit(code=1)
+        raise typer.Exit(code=1) from e
 
 
 @app.command()
@@ -67,7 +67,6 @@ def migrate(
 
     Applies pending migrations by default. Use --rollback to undo migrations.
     """
-    settings = get_settings()
     conn = get_db_connection()
 
     try:
@@ -84,7 +83,7 @@ def migrate(
     except Exception as e:
         logger.error("Migration failed", error=str(e))
         typer.echo(f"✗ Migration failed: {e}", err=True)
-        raise typer.Exit(code=1)
+        raise typer.Exit(code=1) from e
     finally:
         conn.close()
 
@@ -154,7 +153,7 @@ def ingest(
     except Exception as e:
         logger.error("Ingestion failed", error=str(e))
         typer.echo(f"✗ Ingestion failed: {e}", err=True)
-        raise typer.Exit(code=1)
+        raise typer.Exit(code=1) from e
 
 
 @app.command()
@@ -197,7 +196,7 @@ def ingest_players(
         else:
             if season_end_year is None:
                 season_end_year = 2024  # Default to 2023-24 season
-            typer.echo(f"Ingesting players from {season_end_year-1}-{season_end_year} season...")
+            typer.echo(f"Ingesting players from {season_end_year - 1}-{season_end_year} season...")
             entity_id = "season"
 
         # Perform ingestion
@@ -216,7 +215,7 @@ def ingest_players(
     except Exception as e:
         logger.error("Player ingestion failed", error=str(e))
         typer.echo(f"✗ Player ingestion failed: {e}", err=True)
-        raise typer.Exit(code=1)
+        raise typer.Exit(code=1) from e
     finally:
         conn.close()
 
@@ -294,7 +293,7 @@ def ingest_tracking(
     except Exception as e:
         logger.error("Tracking ingestion failed", error=str(e))
         typer.echo(f"✗ Tracking ingestion failed: {e}", err=True)
-        raise typer.Exit(code=1)
+        raise typer.Exit(code=1) from e
     finally:
         conn.close()
 
@@ -345,9 +344,7 @@ def ingest_lineups(
         # Determine entity_id from scope
         if scope == "league":
             entity_id = "league"
-        elif scope.startswith("team:"):
-            entity_id = scope
-        elif scope.startswith("game:"):
+        elif scope.startswith("team:") or scope.startswith("game:"):
             entity_id = scope
         elif team_id:
             entity_id = str(team_id)
@@ -372,7 +369,7 @@ def ingest_lineups(
     except Exception as e:
         logger.error("Lineup ingestion failed", error=str(e))
         typer.echo(f"✗ Lineup ingestion failed: {e}", err=True)
-        raise typer.Exit(code=1)
+        raise typer.Exit(code=1) from e
     finally:
         conn.close()
 
@@ -443,7 +440,7 @@ def ingest_team_other_stats(
     except Exception as e:
         logger.error("Team other stats ingestion failed", error=str(e))
         typer.echo(f"✗ Team other stats ingestion failed: {e}", err=True)
-        raise typer.Exit(code=1)
+        raise typer.Exit(code=1) from e
     finally:
         conn.close()
 
@@ -513,7 +510,9 @@ def ingest_team_advanced_stats(
 
         # Check result
         if result["status"] == "SUCCESS":
-            typer.echo(f"✓ Successfully ingested {result['rows_affected']} advanced stats record(s)")
+            typer.echo(
+                f"✓ Successfully ingested {result['rows_affected']} advanced stats record(s)"
+            )
         else:
             typer.echo(
                 f"✗ Ingestion failed: {result.get('error_message', 'Unknown error')}",
@@ -524,7 +523,7 @@ def ingest_team_advanced_stats(
     except Exception as e:
         logger.error("Team advanced stats ingestion failed", error=str(e))
         typer.echo(f"✗ Team advanced stats ingestion failed: {e}", err=True)
-        raise typer.Exit(code=1)
+        raise typer.Exit(code=1) from e
     finally:
         conn.close()
 
@@ -585,7 +584,7 @@ def ingest_injuries(
     except Exception as e:
         logger.error("Injury ingestion failed", error=str(e))
         typer.echo(f"✗ Injury ingestion failed: {e}", err=True)
-        raise typer.Exit(code=1)
+        raise typer.Exit(code=1) from e
     finally:
         conn.close()
 
@@ -646,7 +645,7 @@ def ingest_contracts(
     except Exception as e:
         logger.error("Contract ingestion failed", error=str(e))
         typer.echo(f"✗ Contract ingestion failed: {e}", err=True)
-        raise typer.Exit(code=1)
+        raise typer.Exit(code=1) from e
     finally:
         conn.close()
 
@@ -676,7 +675,7 @@ def validate(
     except Exception as e:
         logger.error("Validation failed", error=str(e))
         typer.echo(f"✗ Validation failed: {e}", err=True)
-        raise typer.Exit(code=1)
+        raise typer.Exit(code=1) from e
     finally:
         conn.close()
 
@@ -727,7 +726,7 @@ def export(
     except Exception as e:
         logger.error("Export failed", error=str(e))
         typer.echo(f"✗ Export failed: {e}", err=True)
-        raise typer.Exit(code=1)
+        raise typer.Exit(code=1) from e
 
 
 @app.command()
@@ -754,12 +753,12 @@ def status() -> None:
 
         tables = cursor.fetchall()
         typer.echo(f"\n📊 Database Status: {db_path}")
-        typer.echo(f"   Size: {db_path.stat().st_size / (1024*1024):.1f} MB\n")
+        typer.echo(f"   Size: {db_path.stat().st_size / (1024 * 1024):.1f} MB\n")
         typer.echo("Tables:")
 
         for table_name, has_data in tables:
             if has_data:
-                count_cursor = conn.execute(f"SELECT COUNT(*) FROM {table_name}")
+                count_cursor = conn.execute(f"SELECT COUNT(*) FROM {table_name}")  # noqa: S608
                 count = count_cursor.fetchone()[0]
                 typer.echo(f"  • {table_name}: {count:,} rows")
             else:
@@ -787,7 +786,7 @@ def status() -> None:
     except Exception as e:
         logger.error("Failed to get status", error=str(e))
         typer.echo(f"✗ Failed to get status: {e}", err=True)
-        raise typer.Exit(code=1)
+        raise typer.Exit(code=1) from e
     finally:
         conn.close()
 

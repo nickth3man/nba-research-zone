@@ -5,12 +5,11 @@ Spotrac, or ESPN. Contract data includes salary amounts, contract type,
 options, and guaranteed money.
 """
 
-from datetime import datetime
-from typing import Any, Optional
+from typing import Any
 
 import pydantic
-import structlog
 import requests
+import structlog
 from bs4 import BeautifulSoup
 
 from nba_vault.ingestion.base import BaseIngestor
@@ -54,9 +53,11 @@ class ContractIngestor(BaseIngestor):
         super().__init__(cache, rate_limiter)
         self.session = requests.Session()
         # Set a user agent to avoid being blocked
-        self.session.headers.update({
-            "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36"
-        })
+        self.session.headers.update(
+            {
+                "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36"
+            }
+        )
 
     def fetch(
         self,
@@ -116,7 +117,9 @@ class ContractIngestor(BaseIngestor):
 
         elif entity_id.startswith("player:"):
             player_identifier = entity_id.split(":", 1)[1]
-            self.logger.info("Fetching contracts for player", player=player_identifier, source=source)
+            self.logger.info(
+                "Fetching contracts for player", player=player_identifier, source=source
+            )
 
             if source == "realgm":
                 contracts = self._fetch_realgm_player_contracts(player_identifier)
@@ -232,11 +235,13 @@ class ContractIngestor(BaseIngestor):
                             # This is a simplified version - actual implementation would
                             # need to handle more complex contract structures
 
-                            contracts.append({
-                                "player_name": player_name,
-                                "player_url": player_url,
-                                "team": team,
-                            })
+                            contracts.append(
+                                {
+                                    "player_name": player_name,
+                                    "player_url": player_url,
+                                    "team": team,
+                                }
+                            )
 
             self.logger.info("Fetched contracts from Spotrac", count=len(contracts))
             return contracts

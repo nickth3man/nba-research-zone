@@ -26,7 +26,7 @@ def test_league_model():
 
 def test_player_model():
     """Test Player model validation."""
-    from nba_vault.models.player import Player, PlayerCreate
+    from nba_vault.models.player import PlayerCreate
 
     # Valid player
     player_data = {
@@ -63,7 +63,7 @@ def test_player_model():
 
 def test_game_model():
     """Test Game model validation."""
-    from nba_vault.models.game import Game, GameCreate
+    from nba_vault.models.game import GameCreate
 
     # Valid game
     game_data = {

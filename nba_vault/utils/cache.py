@@ -73,7 +73,7 @@ class ContentCache:
             return None
 
         try:
-            with open(cache_path, "r", encoding="utf-8") as f:
+            with cache_path.open(encoding="utf-8") as f:
                 data = json.load(f)
             logger.debug("Cache hit", key=key)
             return data
@@ -96,7 +96,7 @@ class ContentCache:
         cache_path.parent.mkdir(parents=True, exist_ok=True)
 
         try:
-            with open(cache_path, "w", encoding="utf-8") as f:
+            with cache_path.open("w", encoding="utf-8") as f:
                 json.dump(value, f)
             logger.debug("Cached response", key=key)
         except (TypeError, OSError) as e:

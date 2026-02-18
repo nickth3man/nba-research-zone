@@ -1,5 +1,6 @@
 """Player models for data ingestion."""
 
+import contextlib
 from datetime import datetime
 from typing import Any
 
@@ -44,7 +45,9 @@ class BasketballReferencePlayer(BaseModel):
     turnovers: int = Field(default=0, description="Turnovers")
     personal_fouls: int = Field(default=0, description="Personal fouls")
     points: int = Field(default=0, description="Points scored")
-    player_advanced_stats: dict[str, Any] = Field(default_factory=dict, description="Advanced stats")
+    player_advanced_stats: dict[str, Any] = Field(
+        default_factory=dict, description="Advanced stats"
+    )
 
     @field_validator("height")
     @classmethod
@@ -109,16 +112,13 @@ class PlayerCreate(BaseModel):
             return None
         if isinstance(v, str):
             # Already a string, ensure ISO format
-            try:
-                # Try parsing various date formats
+            with contextlib.suppress(Exception):
                 for fmt in ("%Y-%m-%d", "%m/%d/%Y", "%m-%d-%Y", "%Y/%m/%d"):
                     try:
                         dt = datetime.strptime(v, fmt)
                         return dt.isoformat()
                     except ValueError:
                         continue
-            except Exception:
-                pass
         return v
 
     @field_validator("height_inches")
@@ -152,9 +152,8 @@ class PlayerCreate(BaseModel):
                     data["full_name"] = last
 
             # Ensure display_name is populated if missing
-            if "display_name" not in data or not data["display_name"]:
-                if "full_name" in data and data["full_name"]:
-                    data["display_name"] = data["full_name"]
+            if ("display_name" not in data or not data["display_name"]) and data.get("full_name"):
+                data["display_name"] = data["full_name"]
 
         return data
 
@@ -181,10 +180,8 @@ class PlayerCreate(BaseModel):
         # Parse weight
         weight_lbs = None
         if data.weight:
-            try:
+            with contextlib.suppress(ValueError, AttributeError):
                 weight_lbs = float(str(data.weight))
-            except (ValueError, AttributeError):
-                pass
 
         # Parse name into first and last
         name_parts = data.name.split()
@@ -199,7 +196,9 @@ class PlayerCreate(BaseModel):
             "PF": "Power Forward",
             "C": "Center",
         }
-        primary_position = position_mapping.get(data.position.split("-")[0].strip()) if data.position else None
+        primary_position = (
+            position_mapping.get(data.position.split("-")[0].strip()) if data.position else None
+        )
 
         return cls(
             player_id=None,  # Basketball Reference doesn't provide NBA.com ID

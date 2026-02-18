@@ -2,15 +2,17 @@
 
 from pathlib import Path
 
-import duckdb
 import structlog
 
+import duckdb
 from nba_vault.utils.config import get_settings
 
 logger = structlog.get_logger(__name__)
 
 
-def build_duckdb_database(sqlite_path: Path | str | None = None, duckdb_path: Path | str | None = None) -> None:
+def build_duckdb_database(
+    sqlite_path: Path | str | None = None, duckdb_path: Path | str | None = None
+) -> None:
     """
     Build the DuckDB analytical database from SQLite data.
 
@@ -62,7 +64,9 @@ def build_duckdb_database(sqlite_path: Path | str | None = None, duckdb_path: Pa
         con.close()
 
 
-def refresh_views(sqlite_path: Path | str | None = None, duckdb_path: Path | str | None = None) -> None:
+def refresh_views(
+    sqlite_path: Path | str | None = None, duckdb_path: Path | str | None = None
+) -> None:
     """
     Refresh DuckDB materialized views after SQLite updates.
 

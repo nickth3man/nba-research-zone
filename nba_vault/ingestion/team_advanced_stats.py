@@ -4,7 +4,7 @@ This ingestor fetches advanced team statistics from NBA.com Stats API,
 including offensive/defensive ratings, pace, four factors, etc.
 """
 
-from typing import Any, Optional
+from typing import Any
 
 import pydantic
 import structlog
@@ -137,7 +137,7 @@ class TeamAdvancedStatsIngestor(BaseIngestor):
         season_id = season_year
 
         # Process advanced stats data
-        for dataset_name, dataset_data in data.items():
+        for _, dataset_data in data.items():
             if not isinstance(dataset_data, dict):
                 continue
 
@@ -147,7 +147,7 @@ class TeamAdvancedStatsIngestor(BaseIngestor):
             for row in data_rows:
                 try:
                     # Map row data to field names using headers
-                    row_dict = dict(zip(headers, row)) if headers else {}
+                    row_dict = dict(zip(headers, row, strict=False)) if headers else {}
 
                     # Get team ID from row or use the team_id from request
                     row_team_id = row_dict.get("TEAM_ID")
@@ -330,9 +330,9 @@ class TeamAdvancedStatsIngestor(BaseIngestor):
         )
 
     @staticmethod
-    def _safe_int(value: Any) -> Optional[int]:
+    def _safe_int(value: Any) -> int | None:
         """Safely convert value to int, returning None for empty/invalid values."""
-        if value is None or value == "" or value == "-":
+        if value is None or value in {"", "-"}:
             return None
         try:
             return int(float(value))
@@ -340,9 +340,9 @@ class TeamAdvancedStatsIngestor(BaseIngestor):
             return None
 
     @staticmethod
-    def _safe_float(value: Any) -> Optional[float]:
+    def _safe_float(value: Any) -> float | None:
         """Safely convert value to float, returning None for empty/invalid values."""
-        if value is None or value == "" or value == "-":
+        if value is None or value in {"", "-"}:
             return None
         try:
             return float(value)

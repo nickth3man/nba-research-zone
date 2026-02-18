@@ -5,18 +5,17 @@ ESPN, NBA.com, and Rotowire. Since there's no official API for injuries,
 we use web scraping with proper rate limiting and error handling.
 """
 
-from datetime import datetime, date
-from typing import Any, Optional
+from datetime import date, datetime
+from typing import Any
 
 import pydantic
-import structlog
 import requests
+import structlog
 from bs4 import BeautifulSoup
 
 from nba_vault.ingestion.base import BaseIngestor
 from nba_vault.ingestion.registry import register_ingestor
 from nba_vault.models.advanced_stats import InjuryCreate
-from nba_vault.utils.rate_limit import RateLimiter
 
 logger = structlog.get_logger(__name__)
 
@@ -56,9 +55,11 @@ class InjuryIngestor(BaseIngestor):
         super().__init__(cache, rate_limiter)
         self.session = requests.Session()
         # Set a user agent to avoid being blocked
-        self.session.headers.update({
-            "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36"
-        })
+        self.session.headers.update(
+            {
+                "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36"
+            }
+        )
 
     def fetch(
         self,
@@ -114,8 +115,7 @@ class InjuryIngestor(BaseIngestor):
 
             # Filter by team
             filtered_injuries = [
-                inj for inj in injuries
-                if inj.get("team", "").lower() == team_abbreviation.lower()
+                inj for inj in injuries if inj.get("team", "").lower() == team_abbreviation.lower()
             ]
 
             return {
@@ -195,15 +195,17 @@ class InjuryIngestor(BaseIngestor):
                         injury_date_str = date_cell.get_text(strip=True) if date_cell else ""
                         injury_date = self._parse_date(injury_date_str)
 
-                        injuries.append({
-                            "player_name": player_name,
-                            "team": team,
-                            "status": status,
-                            "injury_type": injury_type,
-                            "body_part": body_part,
-                            "injury_date": injury_date,
-                            "notes": injury_desc,
-                        })
+                        injuries.append(
+                            {
+                                "player_name": player_name,
+                                "team": team,
+                                "status": status,
+                                "injury_type": injury_type,
+                                "body_part": body_part,
+                                "injury_date": injury_date,
+                                "notes": injury_desc,
+                            }
+                        )
 
             self.logger.info("Fetched injuries from ESPN", count=len(injuries))
             return injuries
@@ -264,15 +266,17 @@ class InjuryIngestor(BaseIngestor):
                     # Parse injury description
                     injury_type, body_part = self._parse_injury_description(injury_desc)
 
-                    injuries.append({
-                        "player_name": player_name,
-                        "team": team,
-                        "status": status,
-                        "injury_type": injury_type,
-                        "body_part": body_part,
-                        "injury_date": date.today(),  # Rotowire doesn't always show date
-                        "notes": injury_desc,
-                    })
+                    injuries.append(
+                        {
+                            "player_name": player_name,
+                            "team": team,
+                            "status": status,
+                            "injury_type": injury_type,
+                            "body_part": body_part,
+                            "injury_date": date.today(),  # Rotowire doesn't always show date
+                            "notes": injury_desc,
+                        }
+                    )
 
             self.logger.info("Fetched injuries from Rotowire", count=len(injuries))
             return injuries
@@ -295,7 +299,7 @@ class InjuryIngestor(BaseIngestor):
         self.logger.warning("NBA.com injury fetch not yet implemented")
         return []
 
-    def _parse_injury_description(self, desc: str) -> tuple[Optional[str], Optional[str]]:
+    def _parse_injury_description(self, desc: str) -> tuple[str | None, str | None]:
         """
         Parse injury description to extract injury type and body part.
 
@@ -312,17 +316,54 @@ class InjuryIngestor(BaseIngestor):
 
         # Common body parts
         body_parts = [
-            "knee", "ankle", "foot", "heel", "toe", "hip", "groin", "thigh",
-            "hamstring", "quad", "calf", "shin", "achilles", "back", "spine",
-            "shoulder", "elbow", "wrist", "hand", "finger", "thumb", "head",
-            "neck", "face", "eye", "nose", "concussion", "chest", "rib",
+            "knee",
+            "ankle",
+            "foot",
+            "heel",
+            "toe",
+            "hip",
+            "groin",
+            "thigh",
+            "hamstring",
+            "quad",
+            "calf",
+            "shin",
+            "achilles",
+            "back",
+            "spine",
+            "shoulder",
+            "elbow",
+            "wrist",
+            "hand",
+            "finger",
+            "thumb",
+            "head",
+            "neck",
+            "face",
+            "eye",
+            "nose",
+            "concussion",
+            "chest",
+            "rib",
         ]
 
         # Common injury types
         injury_types = [
-            "strain", "sprain", "fracture", "break", "tear", "rupture",
-            "contusion", "bruise", "soreness", "inflammation", "tendinitis",
-            "bursitis", "dislocation", "subluxation", "concussion",
+            "strain",
+            "sprain",
+            "fracture",
+            "break",
+            "tear",
+            "rupture",
+            "contusion",
+            "bruise",
+            "soreness",
+            "inflammation",
+            "tendinitis",
+            "bursitis",
+            "dislocation",
+            "subluxation",
+            "concussion",
         ]
 
         body_part = None
@@ -339,7 +380,7 @@ class InjuryIngestor(BaseIngestor):
 
         return injury_type, body_part
 
-    def _parse_date(self, date_str: str) -> Optional[date]:
+    def _parse_date(self, date_str: str) -> date | None:
         """
         Parse date string into date object.
 

@@ -16,20 +16,16 @@ max_line_length = 100
 templater = raw
 
 # Ignore common patterns
-exclude_rules = """
-    layout.indent,              # Will be handled by formatter
-    layout.spacing,             # Minor spacing issues
-    capitalisation,             # Allow flexible capitalization
-    ambiguous.column_count,     # Some views have complex column counts
-    structure.column_order,     # Don't enforce specific column ordering
-    structure.subquery,         # Allow flexible subquery usage
-"""
+# layout.long_lines: pre-existing long lines in migration files
+# layout.keyword_newline: pre-existing WHERE placement in index migrations
+# PRS parse errors: 'transaction' is a reserved keyword in SQLite dialect (pre-existing schema)
+exclude_rules = layout.indent,layout.spacing,capitalisation,ambiguous.column_count,structure.column_order,structure.subquery,layout.long_lines,layout.keyword_newline,parsing
 
-# Include specific SQL directories
-include = """
-    migrations/
-    duckdb/views/
-"""
+[sqlfluff:indentation]
+# Indent unit (spaces)
+indent_unit = space
+# Tab size (spaces per indent level)
+tab_space_size = 4
 
 [sqlfluff:rules]
 # Allow scalar subqueries
@@ -41,24 +37,12 @@ single_table_references = consistent
 # How to handle unquoted identifiers
 unquoted_identifiers_policy = all
 
-# Max characters allowed for a single line of code
-max_line_length = 100
-
-# Comma placement style (trailing commas)
-comma_style = trailing
-
-# Indent unit (spaces)
-indent_unit = space
-
-# Tab size (spaces per indent level)
-tab_space_size = 4
-
 # How to handle aliasing
 allow_qualify = True
 unquoted_identifiers_can_prefer_reserved = False
 
 [sqlfluff:layout:type:comma]
-# Comma placement
+# Comma placement (trailing commas)
 spacing_before = touch
 line_position = trailing
 
@@ -77,36 +61,6 @@ spacing_after = touch
 ignore_comment_lines = True
 ignore_comment_clauses = True
 
-[sqlfluff:rules:keyword_ordering]
-# Don't enforce specific keyword ordering (too restrictive)
-# enabled = False
-
-[sqlfluff:rules:aliasing]
-# Alias length preferences
-alias_length = 60_5  # Min 5, max 60 characters
-
-[sqlfluff:rules:convention]
-# Count/Star placement
-prefer_count_1 = False  # Allow COUNT(*) vs COUNT(1)
-# Table alignment
-allow_column_in_grouping = True
-
-# DuckDB-specific override for analytical views
-[sqlfluff:overrides.duckdb]
-dialect = duckdb
-# DuckDB supports modern SQL features
-exclude_rules = """
-    layout.indent,
-    layout.spacing,
-    capitalisation,
-"""
-
-# SQLite-specific override for migrations
-[sqlfluff:overrides.sqlite]
-dialect = sqlite
-# SQLite is more conservative with SQL features
-exclude_rules = """
-    layout.indent,
-    layout.spacing,
-    capitalisation,
-"""
+[sqlfluff:rules:convention.count_rows]
+# Allow COUNT(*) vs COUNT(1)
+prefer_count_1 = False

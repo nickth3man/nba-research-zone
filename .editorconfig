@@ -1,0 +1,53 @@
+# EditorConfig — cross-editor baseline consistency
+# https://editorconfig.org
+root = true
+
+[*]
+charset = utf-8
+end_of_line = lf
+insert_final_newline = true
+trim_trailing_whitespace = true
+
+[*.py]
+indent_style = space
+indent_size = 4
+max_line_length = 100
+
+[*.sql]
+indent_style = space
+indent_size = 4
+max_line_length = 100
+
+[*.toml]
+indent_style = space
+indent_size = 4
+
+[*.yaml]
+indent_style = space
+indent_size = 2
+
+[*.yml]
+indent_style = space
+indent_size = 2
+
+[*.json]
+indent_style = space
+indent_size = 2
+
+[*.sh]
+indent_style = space
+indent_size = 4
+# Shell scripts should remain LF even on Windows
+end_of_line = lf
+
+[*.ps1]
+indent_style = space
+indent_size = 4
+
+[Makefile]
+# GNU Make requires real tabs
+indent_style = tab
+
+[*.md]
+trim_trailing_whitespace = false
+max_line_length = off

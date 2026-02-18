@@ -60,3 +60,6 @@ Thumbs.db
 .migrations-state/
 .claude
 CLAUDE.md
+
+# Generated tool output
+repomix-output.xml

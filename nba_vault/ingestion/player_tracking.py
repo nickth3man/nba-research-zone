@@ -5,7 +5,7 @@ including speed, distance, touches, drives, and other movement metrics.
 Tracking data is available from the 2013-14 season onwards.
 """
 
-from typing import Any, Optional
+from typing import Any
 
 import pydantic
 import structlog
@@ -71,7 +71,7 @@ class PlayerTrackingIngestor(BaseIngestor):
             Exception: If fetch fails after retries.
         """
         # Validate season availability
-        season_year = int(season.split("-")[0])
+        season_year = int(season.split("-", maxsplit=1)[0])
         if season_year < 2013:
             raise ValueError(
                 f"Player tracking data is only available from 2013-14 onwards. "
@@ -88,7 +88,9 @@ class PlayerTrackingIngestor(BaseIngestor):
         else:
             # Fetch single player
             player_id = int(entity_id)
-            self.logger.info("Fetching tracking data for player", player_id=player_id, season=season)
+            self.logger.info(
+                "Fetching tracking data for player", player_id=player_id, season=season
+            )
 
             data = self.nba_client.get_player_tracking(
                 player_id=player_id,
@@ -120,7 +122,6 @@ class PlayerTrackingIngestor(BaseIngestor):
         data = raw.get("data", {})
         player_id = raw.get("player_id")
         season = raw.get("season")
-        season_type = raw.get("season_type", "Regular Season")
 
         validated_records = []
 
@@ -130,7 +131,7 @@ class PlayerTrackingIngestor(BaseIngestor):
 
         # Process tracking stats data
         # NBA.com returns multiple data sets, we want the overall stats
-        for dataset_name, dataset_data in data.items():
+        for _, dataset_data in data.items():
             if not isinstance(dataset_data, dict):
                 continue
 
@@ -140,7 +141,7 @@ class PlayerTrackingIngestor(BaseIngestor):
             for row in data_rows:
                 try:
                     # Map row data to field names using headers
-                    row_dict = dict(zip(headers, row)) if headers else {}
+                    row_dict = dict(zip(headers, row, strict=False)) if headers else {}
 
                     # Extract relevant tracking fields
                     tracking_data = {
@@ -318,7 +319,7 @@ class PlayerTrackingIngestor(BaseIngestor):
         )
 
     @staticmethod
-    def _safe_float(value: Any) -> Optional[float]:
+    def _safe_float(value: Any) -> float | None:
         """Safely convert value to float, returning None for empty/invalid values."""
         if value is None or value == "":
             return None
@@ -328,7 +329,7 @@ class PlayerTrackingIngestor(BaseIngestor):
             return None
 
     @staticmethod
-    def _safe_int(value: Any) -> Optional[int]:
+    def _safe_int(value: Any) -> int | None:
         """Safely convert value to int, returning None for empty/invalid values."""
         if value is None or value == "":
             return None

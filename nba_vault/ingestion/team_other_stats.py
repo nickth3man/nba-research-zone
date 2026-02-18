@@ -4,7 +4,7 @@ This ingestor fetches team game "other stats" from NBA.com Stats API,
 including paint points, fast break points, second chance points, etc.
 """
 
-from typing import Any, Optional
+from typing import Any
 
 import pydantic
 import structlog
@@ -52,7 +52,7 @@ class TeamOtherStatsIngestor(BaseIngestor):
     def fetch(
         self,
         entity_id: str,
-        season: Optional[str] = None,
+        season: str | None = None,
         **kwargs: Any,
     ) -> dict[str, Any]:
         """
@@ -78,7 +78,9 @@ class TeamOtherStatsIngestor(BaseIngestor):
             if not team_season:
                 raise ValueError("Season must be provided when fetching by team")
 
-            self.logger.info("Fetching other stats for team games", team_id=team_id, season=team_season)
+            self.logger.info(
+                "Fetching other stats for team games", team_id=team_id, season=team_season
+            )
 
             # For now, return placeholder - would need game log endpoint
             return {
@@ -116,7 +118,6 @@ class TeamOtherStatsIngestor(BaseIngestor):
             pydantic.ValidationError: If validation fails.
         """
         data = raw.get("data", {})
-        scope = raw.get("scope", "game")
         game_id = raw.get("game_id")
         season = raw.get("season")
 
@@ -144,7 +145,7 @@ class TeamOtherStatsIngestor(BaseIngestor):
                 for row in data_rows:
                     try:
                         # Map row data to field names using headers
-                        row_dict = dict(zip(headers, row)) if headers else {}
+                        row_dict = dict(zip(headers, row, strict=False)) if headers else {}
 
                         # Determine if this is home or away team
                         team_id = row_dict.get("TEAM_ID")
@@ -319,9 +320,9 @@ class TeamOtherStatsIngestor(BaseIngestor):
         )
 
     @staticmethod
-    def _safe_int(value: Any) -> Optional[int]:
+    def _safe_int(value: Any) -> int | None:
         """Safely convert value to int, returning None for empty/invalid values."""
-        if value is None or value == "" or value == "-":
+        if value is None or value in {"", "-"}:
             return None
         try:
             return int(float(value))

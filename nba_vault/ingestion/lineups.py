@@ -4,8 +4,8 @@ This ingestor fetches lineup combination data from NBA.com Stats API,
 including performance metrics for specific player combinations.
 """
 
-from typing import Any, Optional
 import hashlib
+from typing import Any
 
 import pydantic
 import structlog
@@ -42,7 +42,7 @@ def generate_lineup_id(
     players_str = "_".join(str(p) for p in players)
 
     # Generate hash
-    return hashlib.md5(players_str.encode()).hexdigest()
+    return hashlib.sha256(players_str.encode()).hexdigest()
 
 
 @register_ingestor
@@ -162,7 +162,6 @@ class LineupsIngestor(BaseIngestor):
             pydantic.ValidationError: If validation fails.
         """
         data = raw.get("data", {})
-        scope = raw.get("scope", "team")
         season = raw.get("season")
         team_id = raw.get("team_id")
 
@@ -173,7 +172,7 @@ class LineupsIngestor(BaseIngestor):
         season_id = season_year
 
         # Process lineup stats data
-        for dataset_name, dataset_data in data.items():
+        for _, dataset_data in data.items():
             if not isinstance(dataset_data, dict):
                 continue
 
@@ -183,7 +182,7 @@ class LineupsIngestor(BaseIngestor):
             for row in data_rows:
                 try:
                     # Map row data to field names using headers
-                    row_dict = dict(zip(headers, row)) if headers else {}
+                    row_dict = dict(zip(headers, row, strict=False)) if headers else {}
 
                     # Extract player IDs from the lineup
                     # NBA.com provides player IDs in separate fields or in a combined format
@@ -211,7 +210,9 @@ class LineupsIngestor(BaseIngestor):
                         "minutes_played": self._safe_float(row_dict.get("MIN")),
                         "possessions": self._safe_int(row_dict.get("POSS")),
                         "points_scored": self._safe_int(row_dict.get("PTS")),
-                        "points_allowed": self._safe_int(row_dict.get("PTS_ALLOWED", row_dict.get("OPP_PTS"))),
+                        "points_allowed": self._safe_int(
+                            row_dict.get("PTS_ALLOWED", row_dict.get("OPP_PTS"))
+                        ),
                         "off_rating": self._safe_float(row_dict.get("OFF_RATING")),
                         "def_rating": self._safe_float(row_dict.get("DEF_RATING")),
                         "net_rating": self._safe_float(row_dict.get("NET_RATING")),
@@ -375,7 +376,7 @@ class LineupsIngestor(BaseIngestor):
         # Try common field names for player IDs
         for i in range(1, 6):
             player_id_field = f"PLAYER_ID_{i}"
-            if player_id_field in row_dict and row_dict[player_id_field]:
+            if row_dict.get(player_id_field):
                 player_id = self._safe_int(row_dict[player_id_field])
                 if player_id:
                     player_ids.append(player_id)
@@ -383,7 +384,7 @@ class LineupsIngestor(BaseIngestor):
         # If we didn't get all 5 players, try alternative format
         if len(player_ids) < 5:
             # Some endpoints return lineup as a combined string
-            # Format: "123/456/789/012/345"
+            # Format: "123/456/789/012/345"  # noqa: ERA001
             lineup_str = row_dict.get("LINEUP", "")
             if lineup_str and "/" in lineup_str:
                 ids = lineup_str.split("/")
@@ -395,9 +396,9 @@ class LineupsIngestor(BaseIngestor):
         return player_ids[:5]  # Ensure we only return 5 players max
 
     @staticmethod
-    def _safe_float(value: Any) -> Optional[float]:
+    def _safe_float(value: Any) -> float | None:
         """Safely convert value to float, returning None for empty/invalid values."""
-        if value is None or value == "" or value == "-":
+        if value is None or value in {"", "-"}:
             return None
         try:
             return float(value)
@@ -405,9 +406,9 @@ class LineupsIngestor(BaseIngestor):
             return None
 
     @staticmethod
-    def _safe_int(value: Any) -> Optional[int]:
+    def _safe_int(value: Any) -> int | None:
         """Safely convert value to int, returning None for empty/invalid values."""
-        if value is None or value == "" or value == "-":
+        if value is None or value in {"", "-"}:
             return None
         try:
             return int(float(value))

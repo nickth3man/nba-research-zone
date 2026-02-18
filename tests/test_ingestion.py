@@ -1,13 +1,11 @@
 """Tests for ingestion framework."""
 
-import pytest
-from unittest.mock import Mock, patch
-
 
 def test_base_ingestor_interface():
     """Test that BaseIngestor provides the required interface."""
+    from abc import ABC
+
     from nba_vault.ingestion.base import BaseIngestor
-    from abc import ABC, abstractmethod
 
     # Check that BaseIngestor is abstract
     assert issubclass(BaseIngestor, ABC)
@@ -21,13 +19,13 @@ def test_base_ingestor_interface():
 
 def test_ingestor_registry():
     """Test ingestor registry functionality."""
+    from nba_vault.ingestion.base import BaseIngestor
     from nba_vault.ingestion.registry import (
-        register_ingestor,
+        create_ingestor,
         get_ingestor,
         list_ingestors,
-        create_ingestor,
+        register_ingestor,
     )
-    from nba_vault.ingestion.base import BaseIngestor
 
     # Create a test ingestor
     @register_ingestor
@@ -63,8 +61,8 @@ def test_ingestor_registry():
 
 def test_rate_limiter():
     """Test rate limiter functionality."""
+
     from nba_vault.utils.rate_limit import RateLimiter
-    import time
 
     limiter = RateLimiter(rate=5, per=1.0)
 
@@ -78,9 +76,10 @@ def test_rate_limiter():
 
 def test_content_cache():
     """Test content cache functionality."""
-    from nba_vault.utils.cache import ContentCache
     import tempfile
     from pathlib import Path
+
+    from nba_vault.utils.cache import ContentCache
 
     with tempfile.TemporaryDirectory() as tmpdir:
         cache = ContentCache(cache_dir=Path(tmpdir))
