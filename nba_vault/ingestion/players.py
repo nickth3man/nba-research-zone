@@ -89,10 +89,11 @@ class PlayersIngestor(BaseIngestor):
                 validated_player = BasketballReferencePlayer(**player_data)
                 validated_players.append(validated_player)
             except pydantic.ValidationError as e:
-                self.logger.error(
-                    "Player validation failed",
-                    player_data=player_data,
-                    errors=str(e),
+                self.logger.exception(
+                    "player_validation_failed",
+                    player_slug=player_data.get("slug", "<unknown>"),
+                    error_count=len(e.errors()),
+                    errors=e.errors(),
                 )
                 raise
 
@@ -145,9 +146,9 @@ class PlayersIngestor(BaseIngestor):
                 # Log to ingestion_audit
                 conn.execute(
                     """
-                    INSERT INTO ingestion_audit
+                    INSERT OR REPLACE INTO ingestion_audit
                     (entity_type, entity_id, status, source, ingest_ts, row_count)
-                    VALUES (?, ?, 'SUCCESS', 'nba_api', datetime('now'), 1)
+                    VALUES (?, ?, 'SUCCESS', 'basketball_reference', datetime('now'), 1)
                     """,
                     (
                         self.entity_type,
@@ -160,15 +161,16 @@ class PlayersIngestor(BaseIngestor):
         except sqlite3.IntegrityError as exc:
             conn.execute("ROLLBACK")
             self.logger.warning(
-                "Integrity error during player upsert",
+                "player_upsert_integrity_error",
                 rows_before_error=rows_affected,
                 error=str(exc),
+                exc_info=True,
             )
             raise
         except sqlite3.OperationalError as exc:
             conn.execute("ROLLBACK")
-            self.logger.error(
-                "Operational error during player upsert",
+            self.logger.exception(
+                "player_upsert_operational_error",
                 rows_before_error=rows_affected,
                 error=str(exc),
             )

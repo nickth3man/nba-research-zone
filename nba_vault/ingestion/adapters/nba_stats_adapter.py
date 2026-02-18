@@ -468,8 +468,13 @@ class NbaApiAdapter(NBAStatsAdapter):
                 or _load_endpoint("nba_api.stats.endpoints.playercareerstats", "PlayerCareerStats"),
                 "drafthistory": getattr(nba_endpoints, "DraftHistory", None)
                 or _load_endpoint("nba_api.stats.endpoints.drafthistory", "DraftHistory"),
-                "draftcombinenonstatmeasures": getattr(
-                    nba_endpoints, "DraftCombineNonStatMeasures", None
+                # DraftCombineNonStatMeasures was renamed to DraftCombinePlayerAnthro
+                # in newer nba_api versions. Try the new name first, fall back to old.
+                "draftcombineplayeranthro": getattr(nba_endpoints, "DraftCombinePlayerAnthro", None)
+                or getattr(nba_endpoints, "DraftCombineNonStatMeasures", None)
+                or _load_endpoint(
+                    "nba_api.stats.endpoints.draftcombineplayeranthro",
+                    "DraftCombinePlayerAnthro",
                 )
                 or _load_endpoint(
                     "nba_api.stats.endpoints.draftcombinenonstatmeasures",
@@ -515,6 +520,7 @@ class NbaApiAdapter(NBAStatsAdapter):
         if endpoint_class is None:
             raise ValueError(f"Unknown endpoint: {endpoint_name}")
 
+        logger.debug("api_request", endpoint=endpoint_name, param_keys=sorted(params.keys()))
         try:
             # Make request with timeout
             response = endpoint_class(**params, timeout=self.timeout)
@@ -549,6 +555,13 @@ class NbaApiAdapter(NBAStatsAdapter):
         except Exception as e:
             error_str = str(e)
             error_type = type(e).__name__
+
+            logger.debug(
+                "api_request_failed",
+                endpoint=endpoint_name,
+                error_type=error_type,
+                error=error_str,
+            )
 
             # Detect HTTP 429 rate-limit responses surfaced by nba_api
             if "429" in error_str or "too many requests" in error_str.lower():
@@ -799,9 +812,13 @@ class NbaApiAdapter(NBAStatsAdapter):
             for team in teams_list:
                 if team["abbreviation"] == abbreviation.upper():
                     return int(team["id"])
-        except Exception:
-            # Silently fail - static data may not be available
-            logger.debug("Failed to get team ID from static data", abbreviation=abbreviation)
+        except Exception as e:
+            logger.debug(
+                "team_lookup_failed",
+                abbreviation=abbreviation,
+                error_type=type(e).__name__,
+                error=str(e),
+            )
         return None
 
     def get_player_id_by_name(self, full_name: str) -> int | None:
@@ -811,9 +828,13 @@ class NbaApiAdapter(NBAStatsAdapter):
             for player in players_list:
                 if player["full_name"].lower() == full_name.lower():
                     return int(player["id"])
-        except Exception:
-            # Silently fail - static data may not be available
-            logger.debug("Failed to get player ID from static data", full_name=full_name)
+        except Exception as e:
+            logger.debug(
+                "player_lookup_failed",
+                full_name=full_name,
+                error_type=type(e).__name__,
+                error=str(e),
+            )
         return None
 
     def get_league_game_log(
@@ -948,9 +969,9 @@ class NbaApiAdapter(NBAStatsAdapter):
         )
 
     def get_draft_combine_anthro(self, season_year: str) -> dict[str, Any]:
-        """Get draft combine anthropometric data using DraftCombineNonStatMeasures."""
+        """Get draft combine anthropometric data using DraftCombinePlayerAnthro."""
         return self._call_endpoint(
-            "draftcombinenonstatmeasures",
+            "draftcombineplayeranthro",
             league_id="00",
             season_year=season_year,
         )

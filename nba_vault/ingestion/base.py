@@ -3,6 +3,7 @@
 import asyncio
 import json
 import sqlite3
+import time
 from abc import ABC, abstractmethod
 from datetime import UTC, datetime
 from pathlib import Path
@@ -119,7 +120,10 @@ class BaseIngestor(ABC):
         if not getattr(self, "entity_type", None):
             raise AttributeError(f"{type(self).__name__} must define a non-empty 'entity_type'")
 
-        self.logger.info("Starting ingestion", entity_id=entity_id)
+        self.logger.info("ingestion_started", entity_id=entity_id)
+        start_time = time.monotonic()
+        # Initialized here so the ValidationError handler can always reference it.
+        raw_data: dict[str, Any] = {}
 
         try:
             # Fetch with retry and rate limiting
@@ -128,17 +132,23 @@ class BaseIngestor(ABC):
                 return self.fetch(entity_id, **kwargs)
 
             raw_data = retry_with_backoff(_fetch)
+            self.logger.debug("fetch_complete", entity_id=entity_id)
 
             # Validate
             validated = self.validate(raw_data)
+            self.logger.debug(
+                "validation_complete", entity_id=entity_id, record_count=len(validated)
+            )
 
             # Upsert
             rows_affected = self.upsert(validated, conn)
 
+            duration_ms = int((time.monotonic() - start_time) * 1000)
             self.logger.info(
-                "Ingestion completed",
+                "ingestion_completed",
                 entity_id=entity_id,
                 rows_affected=rows_affected,
+                duration_ms=duration_ms,
             )
 
             return {
@@ -148,12 +158,14 @@ class BaseIngestor(ABC):
             }
 
         except pydantic.ValidationError as e:
-            self.logger.error(
-                "Validation failed",
+            duration_ms = int((time.monotonic() - start_time) * 1000)
+            self.logger.exception(
+                "validation_failed",
                 entity_id=entity_id,
-                errors=str(e),
+                error_count=len(e.errors()),
+                errors=e.errors(),
+                duration_ms=duration_ms,
             )
-            # Write raw data to quarantine directory
             self._quarantine_data(entity_id, raw_data, str(e))
             return {
                 "status": "FAILED",
@@ -163,11 +175,13 @@ class BaseIngestor(ABC):
             }
 
         except sqlite3.Error as e:
-            self.logger.error(
-                "Database error during upsert",
+            duration_ms = int((time.monotonic() - start_time) * 1000)
+            self.logger.exception(
+                "database_error",
                 entity_id=entity_id,
                 error_type=type(e).__name__,
                 error=str(e),
+                duration_ms=duration_ms,
             )
             return {
                 "status": "FAILED",
@@ -177,10 +191,13 @@ class BaseIngestor(ABC):
             }
 
         except Exception as e:
-            self.logger.error(
-                "Ingestion failed",
+            duration_ms = int((time.monotonic() - start_time) * 1000)
+            self.logger.exception(
+                "ingestion_failed",
                 entity_id=entity_id,
+                error_type=type(e).__name__,
                 error=str(e),
+                duration_ms=duration_ms,
             )
             return {
                 "status": "FAILED",

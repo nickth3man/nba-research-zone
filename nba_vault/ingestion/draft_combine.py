@@ -22,8 +22,10 @@ from nba_vault.models.entities import DraftCombineAnthroCreate
 
 logger = structlog.get_logger(__name__)
 
-_ANTHRO_DATASET = "DraftCombineNonStatMeasures"
-_DRILLS_DATASET = "DraftCombineDrillResults"
+# Both DraftCombinePlayerAnthro and DraftCombineDrillResults return a single
+# dataset named "Results" via get_normalized_dict() in the installed nba_api version.
+_ANTHRO_DATASET = "Results"
+_DRILLS_DATASET = "Results"
 
 
 @register_ingestor
@@ -126,7 +128,20 @@ class DraftCombineIngestor(BaseIngestor):
                 )
                 validated.append(model)
             except (pydantic.ValidationError, ValueError) as exc:
-                self.logger.warning("Combine validation error", error=str(exc), row=row)
+                if isinstance(exc, pydantic.ValidationError):
+                    self.logger.warning(
+                        "combine_validation_error",
+                        player_id=row.get("PLAYER_ID"),
+                        error_count=len(exc.errors()),
+                        errors=exc.errors(),
+                    )
+                else:
+                    self.logger.warning(
+                        "combine_validation_error",
+                        player_id=row.get("PLAYER_ID"),
+                        error=str(exc),
+                        exc_info=True,
+                    )
         self.logger.info("Validated combine rows", count=len(validated))
         return validated
 
@@ -185,8 +200,15 @@ class DraftCombineIngestor(BaseIngestor):
                 )
                 rows_affected += 1
             conn.execute("COMMIT")
-        except sqlite3.Error:
+        except sqlite3.Error as exc:
             conn.execute("ROLLBACK")
+            self.logger.exception(
+                "combine_upsert_failed",
+                draft_year=draft_year_label,
+                rows_before_error=rows_affected,
+                error_type=type(exc).__name__,
+                error=str(exc),
+            )
             raise
 
         upsert_audit(
