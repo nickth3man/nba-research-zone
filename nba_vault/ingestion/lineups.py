@@ -14,6 +14,7 @@ import structlog
 from nba_vault.ingestion.base import BaseIngestor
 from nba_vault.ingestion.nba_stats_client import NBAStatsClient
 from nba_vault.ingestion.registry import register_ingestor
+from nba_vault.ingestion.validation import upsert_audit
 from nba_vault.models.advanced_stats import LineupCreate
 
 logger = structlog.get_logger(__name__)
@@ -271,6 +272,7 @@ class LineupsIngestor(BaseIngestor):
             Number of rows affected.
         """
         rows_affected = 0
+        entity_id = "all"
 
         try:
             # Disable FK checks temporarily: player table may not be populated yet
@@ -280,6 +282,8 @@ class LineupsIngestor(BaseIngestor):
             for lineup in model:
                 if not isinstance(lineup, LineupCreate):
                     continue
+
+                entity_id = str(lineup.season_id)
 
                 # Check if lineup exists
                 cursor = conn.execute(
@@ -292,31 +296,20 @@ class LineupsIngestor(BaseIngestor):
                 exists = cursor.fetchone()[0] > 0
 
                 if exists:
-                    # Update existing lineup
                     self._update_lineup(lineup, conn)
                     rows_affected += 1
                 else:
-                    # Insert new lineup
                     self._insert_lineup(lineup, conn)
                     rows_affected += 1
 
-                # Log to ingestion_audit (INSERT OR IGNORE to handle re-runs)
-                conn.execute(
-                    """
-                    INSERT OR IGNORE INTO ingestion_audit
-                    (entity_type, entity_id, status, source, ingest_ts, row_count)
-                    VALUES (?, ?, 'SUCCESS', 'nba_stats_api', datetime('now'), 1)
-                    """,
-                    (
-                        self.entity_type,
-                        lineup.lineup_id,
-                    ),
-                )
-
+            upsert_audit(
+                conn, self.entity_type, entity_id, "nba_stats_api", "SUCCESS", rows_affected
+            )
             conn.execute("COMMIT")
             conn.execute("PRAGMA foreign_keys = ON")
 
         except sqlite3.IntegrityError as exc:
+            conn.execute("PRAGMA foreign_keys = ON")
             conn.execute("ROLLBACK")
             self.logger.warning(
                 "Integrity error during lineup upsert",
@@ -325,6 +318,7 @@ class LineupsIngestor(BaseIngestor):
             )
             raise
         except sqlite3.OperationalError as exc:
+            conn.execute("PRAGMA foreign_keys = ON")
             conn.execute("ROLLBACK")
             self.logger.error(
                 "Operational error during lineup upsert",

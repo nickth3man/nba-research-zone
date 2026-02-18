@@ -1,10 +1,20 @@
 """Tests for ingestion framework."""
 
 import sqlite3
-from unittest.mock import MagicMock, patch
+from unittest.mock import MagicMock, Mock, patch
 
 import pydantic
 import pytest
+
+
+def _fast_retry_settings():
+    """Return a mock settings object with minimal retry config for fast tests."""
+    settings = Mock()
+    settings.nba_api_retry_attempts = 1
+    settings.nba_api_retry_delay = 0
+    settings.quarantine_dir = None
+    return settings
+
 
 # ---------------------------------------------------------------------------
 # BaseIngestor.ingest() pipeline tests
@@ -138,7 +148,8 @@ def test_ingest_generic_exception():
             return 0
 
     ingestor = ExplodingIngestor(cache=MagicMock(), rate_limiter=RateLimiter(rate=100, per=1.0))
-    result = ingestor.ingest("eid-4", conn=MagicMock())
+    with patch("nba_vault.utils.rate_limit.get_settings", return_value=_fast_retry_settings()):
+        result = ingestor.ingest("eid-4", conn=MagicMock())
 
     assert result["status"] == "FAILED"
     assert result["error"] == "ConnectionError"

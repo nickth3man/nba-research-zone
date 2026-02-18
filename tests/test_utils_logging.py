@@ -21,7 +21,9 @@ def test_setup_logging_console_format(tmp_path):
 
 
 def test_setup_logging_json_format(tmp_path):
-    """setup_logging uses JSONRenderer when log_format is 'json'."""
+    """setup_logging attaches JSONRenderer to the console handler when log_format is 'json'."""
+    import logging
+
     from nba_vault.utils.config import Settings
     from nba_vault.utils.logging import setup_logging
 
@@ -30,10 +32,13 @@ def test_setup_logging_json_format(tmp_path):
     with patch("nba_vault.utils.logging.get_settings", return_value=settings):
         setup_logging()
 
-    config = structlog.get_config()
-    processors = config["processors"]
-    processor_types = [type(p).__name__ for p in processors]
-    assert "JSONRenderer" in processor_types
+    root = logging.getLogger()
+    formatter_processor_types = []
+    for handler in root.handlers:
+        fmt = handler.formatter
+        if fmt is not None and hasattr(fmt, "processors"):
+            formatter_processor_types.extend(type(p).__name__ for p in fmt.processors)
+    assert "JSONRenderer" in formatter_processor_types
 
 
 def test_setup_logging_creates_log_dir(tmp_path):

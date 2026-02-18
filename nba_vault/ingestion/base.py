@@ -166,12 +166,13 @@ class BaseIngestor(ABC):
                 errors=e.errors(),
                 duration_ms=duration_ms,
             )
-            self._quarantine_data(entity_id, raw_data, str(e))
+            quarantine_path = self._quarantine_data(entity_id, raw_data, str(e))
             return {
                 "status": "FAILED",
                 "entity_id": entity_id,
                 "error": "ValidationError",
                 "error_message": str(e),
+                "quarantine_path": str(quarantine_path),
             }
 
         except sqlite3.Error as e:

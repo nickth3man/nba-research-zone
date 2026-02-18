@@ -244,9 +244,10 @@ class TestCreateAnalyticalViews:
 
         mock_con = Mock()
 
-        with patch("nba_vault.duckdb.builder.Path") as mock_path:
-            # Make Path(__file__).parent return our temp directory
-            mock_path.return_value = tmp_path
+        # Patch the views_dir computed inside create_analytical_views
+        with patch("nba_vault.duckdb.builder.Path") as mock_path_cls:
+            # Path(__file__) returns a mock; chain .parent.parent.parent / "duckdb" / "views"
+            mock_path_cls.return_value.parent.parent.parent.__truediv__.return_value.__truediv__.return_value = views_dir
 
             create_analytical_views(mock_con)
 
@@ -257,10 +258,10 @@ class TestCreateAnalyticalViews:
         """Test handling when views directory doesn't exist."""
         mock_con = Mock()
 
-        with patch("nba_vault.duckdb.builder.Path") as mock_path:
-            # Make views directory not exist
-            views_dir = tmp_path / "non_existent"
-            mock_path.return_value = views_dir
+        non_existent = tmp_path / "non_existent" / "views"
+
+        with patch("nba_vault.duckdb.builder.Path") as mock_path_cls:
+            mock_path_cls.return_value.parent.parent.parent.__truediv__.return_value.__truediv__.return_value = non_existent
 
             # Should not raise, should just return
             create_analytical_views(mock_con)
@@ -281,8 +282,8 @@ class TestCreateAnalyticalViews:
         mock_con = Mock()
         mock_con.execute.side_effect = Exception("SQL syntax error")
 
-        with patch("nba_vault.duckdb.builder.Path") as mock_path:
-            mock_path.return_value = tmp_path
+        with patch("nba_vault.duckdb.builder.Path") as mock_path_cls:
+            mock_path_cls.return_value.parent.parent.parent.__truediv__.return_value.__truediv__.return_value = views_dir
 
             with pytest.raises(Exception, match="SQL syntax error"):
                 create_analytical_views(mock_con)
@@ -299,8 +300,8 @@ class TestCreateAnalyticalViews:
 
         mock_con = Mock()
 
-        with patch("nba_vault.duckdb.builder.Path") as mock_path:
-            mock_path.return_value = tmp_path
+        with patch("nba_vault.duckdb.builder.Path") as mock_path_cls:
+            mock_path_cls.return_value.parent.parent.parent.__truediv__.return_value.__truediv__.return_value = views_dir
 
             create_analytical_views(mock_con)
 
@@ -323,8 +324,8 @@ class TestCreateAnalyticalViews:
 
         mock_con = Mock()
 
-        with patch("nba_vault.duckdb.builder.Path") as mock_path:
-            mock_path.return_value = tmp_path
+        with patch("nba_vault.duckdb.builder.Path") as mock_path_cls:
+            mock_path_cls.return_value.parent.parent.parent.__truediv__.return_value.__truediv__.return_value = views_dir
 
             create_analytical_views(mock_con)
 

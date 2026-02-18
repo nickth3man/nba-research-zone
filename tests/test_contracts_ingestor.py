@@ -4,9 +4,18 @@ All three pipeline methods (fetch, validate, upsert) must raise
 NotImplementedError — contracts are intentionally not sourced.
 """
 
+from unittest.mock import Mock, patch
+
 import pytest
 
 from nba_vault.ingestion.contracts import ContractIngestor
+
+
+def _fast_retry_settings():
+    s = Mock()
+    s.nba_api_retry_attempts = 1
+    s.nba_api_retry_delay = 0
+    return s
 
 
 class TestContractIngestorIsStub:
@@ -30,11 +39,13 @@ class TestContractIngestorIsStub:
         with pytest.raises(NotImplementedError):
             ingestor.upsert([], None)  # type: ignore[arg-type]
 
-    def test_ingest_raises_not_implemented(self, db_connection) -> None:  # type: ignore[no-untyped-def]
-        """ingest() delegates to fetch(), which raises NotImplementedError."""
+    def test_ingest_returns_failed_status(self, db_connection) -> None:  # type: ignore[no-untyped-def]
+        """ingest() catches NotImplementedError from fetch() and returns FAILED status."""
         ingestor = ContractIngestor()
-        with pytest.raises(NotImplementedError):
-            ingestor.ingest("all", db_connection)
+        with patch("nba_vault.utils.rate_limit.get_settings", return_value=_fast_retry_settings()):
+            result = ingestor.ingest("all", db_connection)
+        assert result["status"] == "FAILED"
+        assert result["error"] == "NotImplementedError"
 
     def test_entity_type_is_contracts(self) -> None:
         """entity_type must remain 'contracts' so registry still resolves it."""

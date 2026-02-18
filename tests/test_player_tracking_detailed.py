@@ -328,7 +328,8 @@ class TestPlayerTrackingIngestorUpsert:
             distance_miles=2.5,
         )
 
-        # Mock execute to raise IntegrityError on second call
+        # Use a MagicMock connection so execute can be patched
+        mock_conn = Mock()
         call_count = [0]
 
         def mock_execute(sql, params=None):
@@ -337,10 +338,10 @@ class TestPlayerTrackingIngestorUpsert:
                 raise sqlite3.IntegrityError("UNIQUE constraint failed")
             return Mock()
 
-        db_connection.execute = mock_execute
+        mock_conn.execute = mock_execute
 
         with pytest.raises(sqlite3.IntegrityError):
-            ingestor.upsert([tracking], db_connection)
+            ingestor.upsert([tracking], mock_conn)
 
     def test_upsert_with_operational_error(self, db_connection):
         """Test handling of operational errors during upsert."""
@@ -354,14 +355,12 @@ class TestPlayerTrackingIngestorUpsert:
             distance_miles=2.5,
         )
 
-        # Mock execute to raise OperationalError
-        def mock_execute(sql, params=None):
-            raise sqlite3.OperationalError("database is locked")
-
-        db_connection.execute = mock_execute
+        # Use a MagicMock connection so execute can be patched
+        mock_conn = Mock()
+        mock_conn.execute.side_effect = sqlite3.OperationalError("database is locked")
 
         with pytest.raises(sqlite3.OperationalError):
-            ingestor.upsert([tracking], db_connection)
+            ingestor.upsert([tracking], mock_conn)
 
 
 class TestPlayerTrackingSafeConversions:

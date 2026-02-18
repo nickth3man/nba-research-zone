@@ -162,7 +162,14 @@ class TestBaseIngestorIngest:
 
         ingestor.fetch = fetch_error  # type: ignore[assignment]
 
-        result = ingestor.ingest("123", db_connection)
+        # Use minimal retry settings to avoid long sleeps during tests
+        with patch("nba_vault.utils.rate_limit.get_settings") as mock_settings:
+            settings = Mock()
+            settings.nba_api_retry_attempts = 1
+            settings.nba_api_retry_delay = 0
+            mock_settings.return_value = settings
+
+            result = ingestor.ingest("123", db_connection)
 
         assert result["status"] == "FAILED"
         assert "error" in result
@@ -316,23 +323,15 @@ class TestBaseIngestorAbstractMethods:
     """Tests for BaseIngestor abstract methods."""
 
     def test_abstract_methods_must_be_implemented(self):
-        """Test that abstract methods raise NotImplementedError if not implemented."""
+        """Test that abstract methods must be implemented (enforced at class instantiation)."""
 
         class IncompleteIngestor(BaseIngestor):
             """Ingestor without abstract methods implemented."""
 
             entity_type = "incomplete"
 
-        ingestor = IncompleteIngestor()
-
-        with pytest.raises(NotImplementedError):
-            ingestor.fetch("123")
-
-        with pytest.raises(NotImplementedError):
-            ingestor.validate({})
-
-        with pytest.raises(NotImplementedError):
-            ingestor.upsert([], Mock())
+        with pytest.raises(TypeError, match="abstract"):
+            IncompleteIngestor()
 
 
 class TestBaseIngestorRetryLogic:
@@ -394,7 +393,7 @@ class TestBaseIngestorIntegration:
         assert validate_data[0]["id"] == "123"
 
         assert len(upsert_data) == 1
-        assert upsert_data[0].id == "123"
+        assert upsert_data[0].id == 123
 
         assert result["status"] == "SUCCESS"
 
@@ -430,13 +429,20 @@ class TestBaseIngestorErrorRecovery:
 
         ingestor.fetch = fetch_alternating  # type: ignore[assignment]
 
-        # First call fails
-        result1 = ingestor.ingest("123", db_connection)
-        assert result1["status"] == "FAILED"
+        # Use minimal retry settings to avoid long sleeps during tests
+        with patch("nba_vault.utils.rate_limit.get_settings") as mock_settings:
+            settings = Mock()
+            settings.nba_api_retry_attempts = 1
+            settings.nba_api_retry_delay = 0
+            mock_settings.return_value = settings
 
-        # Second call succeeds
-        result2 = ingestor.ingest("456", db_connection)
-        assert result2["status"] == "SUCCESS"
+            # First call fails
+            result1 = ingestor.ingest("123", db_connection)
+            assert result1["status"] == "FAILED"
+
+            # Second call succeeds
+            result2 = ingestor.ingest("456", db_connection)
+            assert result2["status"] == "SUCCESS"
 
     def test_validation_error_preserves_raw_data(self, tmp_path):
         """Test that validation errors preserve raw data in quarantine."""

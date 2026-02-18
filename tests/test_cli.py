@@ -174,14 +174,15 @@ def test_admin_status_query_error(tmp_path):
 # ---------------------------------------------------------------------------
 
 
-def test_admin_validate_not_implemented():
+def test_admin_validate_runs_checks():
     from nba_vault.cli import app
 
     with patch("nba_vault.cli.admin.get_db_connection", return_value=_mock_conn()):
         result = runner.invoke(app, ["admin", "validate"])
 
+    # validate is implemented; it runs checks and exits 1 when any check fails
     assert result.exit_code == 1
-    assert "not yet implemented" in result.output
+    assert "validation" in result.output.lower() or "check" in result.output.lower()
 
 
 def test_admin_validate_db_open_error():
@@ -201,16 +202,18 @@ def test_admin_validate_db_open_error():
 def test_ingestion_ingest_incremental():
     from nba_vault.cli import app
 
-    result = runner.invoke(app, ["ingestion", "ingest"])
+    # ingest is implemented; without a real DB it exits with code 1
+    with patch("nba_vault.cli.ingestion.get_db_connection", side_effect=RuntimeError("no db")):
+        result = runner.invoke(app, ["ingestion", "ingest"])
 
     assert result.exit_code == 1
-    assert "not yet implemented" in result.output
 
 
 def test_ingestion_ingest_full():
     from nba_vault.cli import app
 
-    result = runner.invoke(app, ["ingestion", "ingest", "--mode", "full"])
+    with patch("nba_vault.cli.ingestion.get_db_connection", side_effect=RuntimeError("no db")):
+        result = runner.invoke(app, ["ingestion", "ingest", "--mode", "full"])
 
     assert result.exit_code == 1
 

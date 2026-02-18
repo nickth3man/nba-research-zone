@@ -386,7 +386,8 @@ class TestLineupsIngestorUpsert:
             minutes_played=100.0,
         )
 
-        # Mock execute to raise IntegrityError on second call
+        # Use a Mock connection so execute can be patched
+        mock_conn = Mock()
         call_count = [0]
 
         def mock_execute(sql, params=None):
@@ -395,10 +396,10 @@ class TestLineupsIngestorUpsert:
                 raise sqlite3.IntegrityError("UNIQUE constraint failed")
             return Mock()
 
-        db_connection.execute = mock_execute
+        mock_conn.execute = mock_execute
 
         with pytest.raises(sqlite3.IntegrityError):
-            ingestor.upsert([lineup], db_connection)
+            ingestor.upsert([lineup], mock_conn)
 
     def test_upsert_with_operational_error(self, db_connection):
         """Test handling of operational errors during upsert."""
@@ -416,14 +417,12 @@ class TestLineupsIngestorUpsert:
             minutes_played=100.0,
         )
 
-        # Mock execute to raise OperationalError
-        def mock_execute(sql, params=None):
-            raise sqlite3.OperationalError("database is locked")
-
-        db_connection.execute = mock_execute
+        # Use a Mock connection so execute can be patched
+        mock_conn = Mock()
+        mock_conn.execute.side_effect = sqlite3.OperationalError("database is locked")
 
         with pytest.raises(sqlite3.OperationalError):
-            ingestor.upsert([lineup], db_connection)
+            ingestor.upsert([lineup], mock_conn)
 
 
 class TestLineupsIngestorExtractPlayerIDs:
@@ -649,6 +648,6 @@ class TestLineupsIngestorEdgeCases:
         result = ingestor.validate(raw_data)
         assert len(result) == 1
 
-        # Generate expected ID
-        expected_id = generate_lineup_id(1, 2, 3, 4, 5)
+        # Generate expected ID — must include season_id and team_id to match validate()
+        expected_id = generate_lineup_id(1, 2, 3, 4, 5, season_id=2023, team_id=1610612747)
         assert result[0].lineup_id == expected_id  # type: ignore[attr-defined]

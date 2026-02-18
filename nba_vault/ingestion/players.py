@@ -9,6 +9,7 @@ import structlog
 from nba_vault.ingestion.base import BaseIngestor
 from nba_vault.ingestion.basketball_reference import BasketballReferenceClient
 from nba_vault.ingestion.registry import register_ingestor
+from nba_vault.ingestion.validation import upsert_audit
 from nba_vault.models.players import BasketballReferencePlayer, PlayerCreate
 
 logger = structlog.get_logger(__name__)
@@ -143,19 +144,9 @@ class PlayersIngestor(BaseIngestor):
                     self._insert_player(player_create, conn)
                     rows_affected += 1
 
-                # Log to ingestion_audit
-                conn.execute(
-                    """
-                    INSERT OR REPLACE INTO ingestion_audit
-                    (entity_type, entity_id, status, source, ingest_ts, row_count)
-                    VALUES (?, ?, 'SUCCESS', 'basketball_reference', datetime('now'), 1)
-                    """,
-                    (
-                        self.entity_type,
-                        player_create.bbref_id,
-                    ),
-                )
-
+            upsert_audit(
+                conn, self.entity_type, "all", "basketball_reference", "SUCCESS", rows_affected
+            )
             conn.execute("COMMIT")
 
         except sqlite3.IntegrityError as exc:

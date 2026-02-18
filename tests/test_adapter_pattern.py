@@ -118,6 +118,58 @@ class MockNBAStatsAdapter(NBAStatsAdapter):
             return 2544
         return None
 
+    def get_box_score_traditional(self, **kwargs):  # type: ignore[override]
+        """Return empty mock traditional box score."""
+        return {}
+
+    def get_box_score_advanced(self, **kwargs):  # type: ignore[override]
+        """Return empty mock advanced box score."""
+        return {}
+
+    def get_box_score_hustle(self, **kwargs):  # type: ignore[override]
+        """Return empty mock hustle box score."""
+        return {}
+
+    def get_common_player_info(self, **kwargs):  # type: ignore[override]
+        """Return empty mock player info."""
+        return {}
+
+    def get_common_team_roster(self, **kwargs):  # type: ignore[override]
+        """Return empty mock team roster."""
+        return {}
+
+    def get_draft_combine_anthro(self, **kwargs):  # type: ignore[override]
+        """Return empty mock draft combine anthropometric data."""
+        return {}
+
+    def get_draft_combine_drills(self, **kwargs):  # type: ignore[override]
+        """Return empty mock draft combine drills data."""
+        return {}
+
+    def get_draft_history(self, **kwargs):  # type: ignore[override]
+        """Return empty mock draft history."""
+        return {}
+
+    def get_league_game_log(self, **kwargs):  # type: ignore[override]
+        """Return empty mock league game log."""
+        return {}
+
+    def get_play_by_play(self, **kwargs):  # type: ignore[override]
+        """Return empty mock play-by-play data."""
+        return {}
+
+    def get_player_awards(self, **kwargs):  # type: ignore[override]
+        """Return empty mock player awards."""
+        return {}
+
+    def get_player_career_stats(self, **kwargs):  # type: ignore[override]
+        """Return empty mock player career stats."""
+        return {}
+
+    def get_shot_chart(self, **kwargs):  # type: ignore[override]
+        """Return empty mock shot chart data."""
+        return {}
+
 
 class TestMockAdapter:
     """Tests demonstrating mock adapter usage."""

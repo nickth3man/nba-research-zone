@@ -48,18 +48,19 @@ def test_db(tmp_path):
         """
     )
 
-    # Create ingestion_audit table
+    # Create ingestion_audit table (must match the real schema used by upsert_audit)
     conn.execute(
         """
         CREATE TABLE IF NOT EXISTS ingestion_audit (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            entity_type TEXT NOT NULL,
-            entity_id TEXT NOT NULL,
-            status TEXT NOT NULL,
-            source TEXT,
-            metadata TEXT,
+            audit_id      INTEGER PRIMARY KEY AUTOINCREMENT,
+            entity_type   TEXT NOT NULL,
+            entity_id     TEXT NOT NULL,
+            source        TEXT NOT NULL,
+            ingest_ts     TEXT NOT NULL,
+            status        TEXT NOT NULL,
+            row_count     INTEGER,
             error_message TEXT,
-            ingested_at TEXT NOT NULL
+            UNIQUE(entity_type, entity_id, source)
         )
         """
     )
@@ -333,12 +334,12 @@ class TestPlayersIngestor:
             count = cursor.fetchone()[0]
             assert count == 2
 
-            # Check audit log
+            # Check audit log — one record per ingest() call (entity_id = "all")
             cursor = test_db.execute(
                 "SELECT COUNT(*) FROM ingestion_audit WHERE entity_type = 'players' AND status = 'SUCCESS'"
             )
             audit_count = cursor.fetchone()[0]
-            assert audit_count == 2
+            assert audit_count == 1
 
 
 @pytest.mark.integration

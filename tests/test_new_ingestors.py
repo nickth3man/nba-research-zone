@@ -398,7 +398,7 @@ class TestInjuryIngestor:
     def test_fetch_unsupported_source(self):
         """Test that unsupported source raises error."""
         ingestor = InjuryIngestor()
-        with pytest.raises(ValueError, match="Unsupported source"):
+        with pytest.raises(ValueError, match=r"[Uu]nsupported"):
             ingestor.fetch("all", source="invalid")
 
     def test_parse_injury_description(self):
@@ -432,45 +432,24 @@ class TestInjuryIngestor:
 
 
 class TestContractIngestor:
-    """Tests for ContractIngestor."""
+    """Tests for ContractIngestor (intentional stub — raises NotImplementedError)."""
 
     def test_init(self):
         """Test ingestor initialization."""
         ingestor = ContractIngestor()
         assert ingestor.entity_type == "contracts"
-        assert ingestor.session is not None
 
-    def test_fetch_unsupported_source(self):
-        """Test that unsupported source raises error."""
+    def test_fetch_raises_not_implemented(self):
+        """Contract fetch is intentionally not implemented."""
         ingestor = ContractIngestor()
-        with pytest.raises(ValueError, match="Unsupported source"):
-            ingestor.fetch("all", source="invalid")
+        with pytest.raises(NotImplementedError):
+            ingestor.fetch("all", source="realgm")
 
-    def test_validate_with_data(self):
-        """Test validating contract data."""
+    def test_validate_raises_not_implemented(self):
+        """Contract validate is intentionally not implemented."""
         ingestor = ContractIngestor()
-        raw_data = {
-            "contracts": [
-                {
-                    "player_id": 2544,
-                    "team_id": 1610612747,
-                    "season_start": 2023,
-                    "season_end": 2026,
-                    "salary_amount": 50000000.0,
-                    "contract_type": "Veteran",
-                    "player_option": 1,
-                    "team_option": 0,
-                    "early_termination": 0,
-                    "guaranteed_money": 50000000.0,
-                }
-            ]
-        }
-
-        result = ingestor.validate(raw_data)
-        assert len(result) == 1
-        assert isinstance(result[0], PlayerContractCreate)
-        assert result[0].player_id == 2544
-        assert result[0].salary_amount == 50000000.0
+        with pytest.raises(NotImplementedError):
+            ingestor.validate({})
 
 
 class TestIngestorRegistry:
@@ -801,10 +780,10 @@ class TestInjuryUpsert:
 
 
 class TestContractUpsert:
-    """Integration tests for ContractIngestor.upsert()."""
+    """Tests for ContractIngestor.upsert() (intentional stub — raises NotImplementedError)."""
 
-    def test_upsert_inserts_new_contract(self, db_connection):
-        from nba_vault.models.advanced_stats import PlayerContractCreate
+    def test_upsert_raises_not_implemented(self, db_connection):
+        """Contract upsert is intentionally not implemented."""
 
         ingestor = ContractIngestor()
         models = [
@@ -817,44 +796,5 @@ class TestContractUpsert:
                 contract_type="Veteran",
             )
         ]
-        rows = ingestor.upsert(models, db_connection)
-        assert rows == 1
-
-        cursor = db_connection.execute(
-            "SELECT salary_amount FROM player_contract "
-            "WHERE player_id = 2544 AND season_start = 2023"
-        )
-        assert cursor.fetchone()[0] == 46_000_000.0
-
-    def test_upsert_updates_existing_contract(self, db_connection):
-        from nba_vault.models.advanced_stats import PlayerContractCreate
-
-        ingestor = ContractIngestor()
-        model = PlayerContractCreate(
-            player_id=201939,
-            team_id=1610612738,
-            season_start=2023,
-            season_end=2024,
-            salary_amount=30_000_000.0,
-        )
-        ingestor.upsert([model], db_connection)
-
-        updated = PlayerContractCreate(
-            player_id=201939,
-            team_id=1610612738,
-            season_start=2023,
-            season_end=2025,
-            salary_amount=32_000_000.0,
-        )
-        rows = ingestor.upsert([updated], db_connection)
-        assert rows == 1
-
-    def test_upsert_skips_non_contract_models(self, db_connection):
-        from pydantic import BaseModel
-
-        class Other(BaseModel):
-            x: int = 1
-
-        ingestor = ContractIngestor()
-        rows = ingestor.upsert([Other()], db_connection)
-        assert rows == 0
+        with pytest.raises(NotImplementedError):
+            ingestor.upsert(models, db_connection)

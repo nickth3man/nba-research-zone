@@ -14,6 +14,7 @@ import structlog
 from nba_vault.ingestion.base import BaseIngestor
 from nba_vault.ingestion.nba_stats_client import NBAStatsClient
 from nba_vault.ingestion.registry import register_ingestor
+from nba_vault.ingestion.validation import upsert_audit
 from nba_vault.models.advanced_stats import PlayerGameTrackingCreate
 
 logger = structlog.get_logger(__name__)
@@ -232,19 +233,7 @@ class PlayerTrackingIngestor(BaseIngestor):
                     self._insert_tracking(tracking_record, conn)
                     rows_affected += 1
 
-                # Log to ingestion_audit
-                conn.execute(
-                    """
-                    INSERT INTO ingestion_audit
-                    (entity_type, entity_id, status, source, ingest_ts, row_count)
-                    VALUES (?, ?, 'SUCCESS', 'nba_stats_api', datetime('now'), 1)
-                    """,
-                    (
-                        self.entity_type,
-                        f"{tracking_record.game_id}_{tracking_record.player_id}",
-                    ),
-                )
-
+            upsert_audit(conn, self.entity_type, "all", "nba_stats_api", "SUCCESS", rows_affected)
             conn.execute("COMMIT")
 
         except sqlite3.IntegrityError as exc:

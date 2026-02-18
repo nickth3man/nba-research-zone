@@ -1,7 +1,5 @@
-"""Tests for Basketball Reference client."""
+"""Tests for Basketball Reference client (now NBA.com API-backed)."""
 
-import sys
-from types import SimpleNamespace
 from unittest.mock import MagicMock, patch
 
 import pytest
@@ -9,6 +7,8 @@ import pytest
 from nba_vault.ingestion.basketball_reference import BasketballReferenceClient
 from nba_vault.utils.cache import ContentCache
 from nba_vault.utils.rate_limit import RateLimiter
+
+_PATCH_TARGET = "nba_api.stats.endpoints.commonallplayers.CommonAllPlayers"
 
 # ---------------------------------------------------------------------------
 # Initialisation
@@ -32,69 +32,36 @@ def test_init_custom_deps():
 
 
 # ---------------------------------------------------------------------------
-# get_players - validation
-# ---------------------------------------------------------------------------
-
-
-def test_get_players_season_too_low():
-    client = BasketballReferenceClient()
-    with pytest.raises(ValueError, match="1947"):
-        client.get_players(season_end_year=1900)
-
-
-def test_get_players_season_too_high():
-    client = BasketballReferenceClient()
-    with pytest.raises(ValueError, match="2100"):
-        client.get_players(season_end_year=2200)
-
-
-def test_get_players_season_boundary_valid():
-    """Boundary values 1947 and 2100 are accepted (validated before import)."""
-    client = BasketballReferenceClient()
-    # Validation passes; the ImportError is raised next — that's fine
-    with pytest.raises((ImportError, Exception)):
-        client.get_players(season_end_year=1947)
-
-
-# ---------------------------------------------------------------------------
-# get_players - ImportError
-# ---------------------------------------------------------------------------
-
-
-def test_get_players_import_error():
-    """Raises ImportError with helpful message when library is missing."""
-    client = BasketballReferenceClient()
-    with (
-        patch.dict(sys.modules, {"basketball_reference_web_scraper": None}),
-        pytest.raises(ImportError, match="basketball_reference_web_scraper"),
-    ):
-        client.get_players(season_end_year=2024)
-
-
-# ---------------------------------------------------------------------------
-# get_players - cache hit
+# get_players - cache hit (no API call needed)
 # ---------------------------------------------------------------------------
 
 
 def test_get_players_cache_hit(tmp_path):
-    """Returns cached data without hitting the scraper."""
+    """Returns cached data without hitting the API."""
     cache = ContentCache(cache_dir=tmp_path)
-    cached = [{"slug": "jamesle01", "name": "LeBron James"}]
-    cache.set("players_season_2024", cached)
+    cached = [{"slug": "2544", "name": "LeBron James"}]
+    cache.set("nba_api_all_players_2023-24", cached)
 
     client = BasketballReferenceClient(cache=cache)
-    result = client.get_players(season_end_year=2024)
+    # Cache hit — no API call needed, no patch required
+    with patch(_PATCH_TARGET) as mock_api:
+        result = client.get_players(season_end_year=2024)
+        mock_api.assert_not_called()
+
     assert result == cached
 
 
 def test_get_players_cache_hit_all_seasons(tmp_path):
-    """Cache key 'players_season_all' is used when season_end_year is None."""
+    """Cache key uses season string when season_end_year is None (defaults to 2024)."""
     cache = ContentCache(cache_dir=tmp_path)
-    cached = [{"slug": "test01", "name": "Test Player"}]
-    cache.set("players_season_all", cached)
+    cached = [{"slug": "1", "name": "Test Player"}]
+    cache.set("nba_api_all_players_2023-24", cached)
 
     client = BasketballReferenceClient(cache=cache)
-    result = client.get_players(season_end_year=None)
+    with patch(_PATCH_TARGET) as mock_api:
+        result = client.get_players(season_end_year=None)
+        mock_api.assert_not_called()
+
     assert result == cached
 
 
@@ -103,126 +70,88 @@ def test_get_players_cache_hit_all_seasons(tmp_path):
 # ---------------------------------------------------------------------------
 
 
-def _make_player_obj(**kwargs):
-    """Build a SimpleNamespace that mimics a basketball_reference player dict."""
+def _make_nba_api_row(**kwargs):
+    """Build a mock NBA.com CommonAllPlayers row dict."""
     defaults = {
-        "slug": "jamesle01",
-        "name": "LeBron James",
-        "position": "SF",
-        "height": "6-9",
-        "weight": 250,
-        "team_abbreviation": "LAL",
-        "games_played": 71,
-        "games_started": 71,
-        "minutes_played": 2476.0,
-        "field_goals": 800,
-        "field_goal_attempts": 1500,
-        "field_goal_percentage": 0.533,
-        "three_point_field_goals": 100,
-        "three_point_field_goal_attempts": 280,
-        "three_point_field_goal_percentage": 0.357,
-        "two_point_field_goals": 700,
-        "two_point_field_goal_attempts": 1220,
-        "two_point_field_goal_percentage": 0.574,
-        "effective_field_goal_percentage": 0.566,
-        "free_throws": 380,
-        "free_throw_attempts": 500,
-        "free_throw_percentage": 0.760,
-        "offensive_rebounds": 80,
-        "defensive_rebounds": 450,
-        "rebounds": 530,
-        "assists": 650,
-        "steals": 90,
-        "blocks": 45,
-        "turnovers": 280,
-        "personal_fouls": 120,
-        "points": 2080,
-        "player_advanced_stats": {},
+        "PERSON_ID": 2544,
+        "DISPLAY_FIRST_LAST": "LeBron James",
+        "PLAYER_SLUG": "lebron_james",
+        "TEAM_ID": 1610612747,
+        "TEAM_ABBREVIATION": "LAL",
+        "FROM_YEAR": "2003",
+        "TO_YEAR": "2024",
+        "ROSTERSTATUS": 1,
     }
     defaults.update(kwargs)
-    return SimpleNamespace(**defaults)
+    return defaults
+
+
+def _make_mock_result(rows):
+    """Build a mock CommonAllPlayers result."""
+    mock_result = MagicMock()
+    mock_result.get_dict.return_value = {
+        "resultSets": [
+            {
+                "headers": list(rows[0].keys()) if rows else [],
+                "rowSet": [list(r.values()) for r in rows],
+            }
+        ]
+    }
+    return mock_result
 
 
 def test_get_players_success(tmp_path):
     """Returns a list of player dicts and populates the cache."""
     cache = ContentCache(cache_dir=tmp_path)
-    mock_scraper = MagicMock()
-    mock_scraper.players_season_totals.return_value = [_make_player_obj()]
+    rows = [_make_nba_api_row()]
 
     client = BasketballReferenceClient(cache=cache)
 
-    with patch.dict(sys.modules, {"basketball_reference_web_scraper": mock_scraper}):
+    with patch(_PATCH_TARGET, return_value=_make_mock_result(rows)):
         result = client.get_players(season_end_year=2024)
 
     assert len(result) == 1
-    assert result[0]["slug"] == "jamesle01"
-    # Cache should now be populated
-    assert cache.get("players_season_2024") is not None
+    assert result[0]["slug"] == "2544"
+    assert result[0]["name"] == "LeBron James"
+    assert cache.get("nba_api_all_players_2023-24") is not None
 
 
 def test_get_players_empty_response(tmp_path):
-    """Returns empty list when scraper returns no data."""
+    """Returns empty list when API returns no data."""
     cache = ContentCache(cache_dir=tmp_path)
-    mock_scraper = MagicMock()
-    mock_scraper.players_season_totals.return_value = []
+
+    mock_result = MagicMock()
+    mock_result.get_dict.return_value = {"resultSets": [{"headers": [], "rowSet": []}]}
 
     client = BasketballReferenceClient(cache=cache)
 
-    with patch.dict(sys.modules, {"basketball_reference_web_scraper": mock_scraper}):
+    with patch(_PATCH_TARGET, return_value=mock_result):
         result = client.get_players(season_end_year=2024)
 
     assert result == []
 
 
-def test_get_players_attribute_error_skips_player(tmp_path):
-    """Players whose attributes raise AttributeError are skipped gracefully."""
+def test_get_players_none_season_defaults_to_2024(tmp_path):
+    """When season_end_year is None, defaults to 2024 season."""
     cache = ContentCache(cache_dir=tmp_path)
-
-    bad_player = MagicMock()
-    bad_player.slug = "bad01"
-    # Make accessing any attribute raise AttributeError
-    type(bad_player).__getattr__ = MagicMock(side_effect=AttributeError("no attr"))  # type: ignore[assignment]
-
-    good_player = _make_player_obj()
-
-    mock_scraper = MagicMock()
-    mock_scraper.players_season_totals.return_value = [bad_player, good_player]
+    rows = [_make_nba_api_row()]
 
     client = BasketballReferenceClient(cache=cache)
 
-    with patch.dict(sys.modules, {"basketball_reference_web_scraper": mock_scraper}):
-        result = client.get_players(season_end_year=2024)
-
-    # good_player should still be present
-    slugs = [p["slug"] for p in result]
-    assert "jamesle01" in slugs
-
-
-def test_get_players_none_season_calls_default(tmp_path):
-    """When season_end_year is None, defaults to 2024 season totals."""
-    cache = ContentCache(cache_dir=tmp_path)
-    mock_scraper = MagicMock()
-    mock_scraper.players_season_totals.return_value = [_make_player_obj()]
-
-    client = BasketballReferenceClient(cache=cache)
-
-    with patch.dict(sys.modules, {"basketball_reference_web_scraper": mock_scraper}):
+    with patch(_PATCH_TARGET, return_value=_make_mock_result(rows)):
         result = client.get_players(season_end_year=None)
 
-    mock_scraper.players_season_totals.assert_called_once_with(2024)
     assert len(result) == 1
 
 
 def test_get_players_propagates_exception(tmp_path):
-    """Non-cache, non-import exceptions from the scraper propagate to caller."""
+    """Non-cache, non-import exceptions from the API propagate to caller."""
     cache = ContentCache(cache_dir=tmp_path)
-    mock_scraper = MagicMock()
-    mock_scraper.players_season_totals.side_effect = ConnectionError("timeout")
 
     client = BasketballReferenceClient(cache=cache)
 
     with (
-        patch.dict(sys.modules, {"basketball_reference_web_scraper": mock_scraper}),
+        patch(_PATCH_TARGET, side_effect=ConnectionError("timeout")),
         pytest.raises(ConnectionError),
     ):
         client.get_players(season_end_year=2024)
@@ -233,52 +162,32 @@ def test_get_players_propagates_exception(tmp_path):
 # ---------------------------------------------------------------------------
 
 
-def test_get_player_info_import_error():
-    """Raises ImportError when library is missing."""
-    client = BasketballReferenceClient()
-    with (
-        patch.dict(sys.modules, {"basketball_reference_web_scraper": None}),
-        pytest.raises(ImportError),
-    ):
-        client.get_player_info("jamesle01")
-
-
 def test_get_player_info_cache_hit(tmp_path):
-    """Returns cached player info without calling the scraper."""
+    """Returns cached player info without calling the API."""
     cache = ContentCache(cache_dir=tmp_path)
-    cached = {"slug": "jamesle01", "data": []}
-    cache.set("player_info_jamesle01", cached)
+    cached = {"slug": "2544", "data": {}}
+    cache.set("player_info_2544", cached)
 
     client = BasketballReferenceClient(cache=cache)
-    result = client.get_player_info("jamesle01")
+    result = client.get_player_info("2544")
     assert result == cached
 
 
 def test_get_player_info_success(tmp_path):
     """Fetches, caches and returns player info dict."""
     cache = ContentCache(cache_dir=tmp_path)
-    mock_scraper = MagicMock()
-    mock_scraper.player_box_scores.return_value = [{"game": "data"}]
-
     client = BasketballReferenceClient(cache=cache)
 
-    with patch.dict(sys.modules, {"basketball_reference_web_scraper": mock_scraper}):
-        result = client.get_player_info("jamesle01")
+    result = client.get_player_info("2544")
 
-    assert result["slug"] == "jamesle01"
-    assert cache.get("player_info_jamesle01") is not None
+    assert result["slug"] == "2544"
+    assert cache.get("player_info_2544") is not None
 
 
-def test_get_player_info_propagates_exception(tmp_path):
-    """Exceptions from the scraper propagate to the caller."""
+def test_get_player_info_returns_slug(tmp_path):
+    """get_player_info always returns a dict with the requested slug."""
     cache = ContentCache(cache_dir=tmp_path)
-    mock_scraper = MagicMock()
-    mock_scraper.player_box_scores.side_effect = RuntimeError("scrape error")
-
     client = BasketballReferenceClient(cache=cache)
 
-    with (
-        patch.dict(sys.modules, {"basketball_reference_web_scraper": mock_scraper}),
-        pytest.raises(RuntimeError, match="scrape error"),
-    ):
-        client.get_player_info("jamesle01")
+    result = client.get_player_info("jamesle01")
+    assert result["slug"] == "jamesle01"

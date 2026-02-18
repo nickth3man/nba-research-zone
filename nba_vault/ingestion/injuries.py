@@ -12,6 +12,8 @@ resolved to a player_id are silently skipped and logged at DEBUG level.
 from __future__ import annotations
 
 import difflib
+import sqlite3
+import time
 from datetime import date
 from typing import Any
 
@@ -25,7 +27,9 @@ from nba_vault.ingestion.scrapers.injury_scrapers import (
     ESPNInjuryScraper,
     RotowireInjuryScraper,
 )
+from nba_vault.ingestion.validation import upsert_audit
 from nba_vault.models.advanced_stats import InjuryCreate
+from nba_vault.utils.rate_limit import retry_with_backoff
 
 logger = structlog.get_logger(__name__)
 
@@ -74,23 +78,94 @@ class InjuryIngestor(BaseIngestor):
         Overrides BaseIngestor.ingest() to build a player name→ID lookup from
         the SQLite `player` table, so that validate() can resolve scraped
         player names to integer player_ids without a separate DB query.
+
+        Mirrors the error-handling contract of BaseIngestor.ingest().
         """
-        raw = self.fetch(entity_id, **kwargs)
-        raw["_player_name_map"] = self._build_player_name_map(conn)
-        validated = self.validate(raw)
-        rows_affected = self.upsert(validated, conn)
-        source = kwargs.get("source", "espn")
-        self.logger.info(
-            "Injury ingest complete",
-            entity_id=entity_id,
-            source=source,
-            rows_affected=rows_affected,
-        )
-        return {
-            "status": "SUCCESS",
-            "entity_id": entity_id,
-            "rows_affected": rows_affected,
-        }
+        if not getattr(self, "entity_type", None):
+            raise AttributeError(f"{type(self).__name__} must define a non-empty 'entity_type'")
+
+        self.logger.info("ingestion_started", entity_id=entity_id)
+        start_time = time.monotonic()
+        raw_data: dict[str, Any] = {}
+
+        try:
+
+            def _fetch() -> dict[str, Any]:
+                self.rate_limiter.acquire()
+                return self.fetch(entity_id, **kwargs)
+
+            raw_data = retry_with_backoff(_fetch)
+            raw_data["_player_name_map"] = self._build_player_name_map(conn)
+            self.logger.debug("fetch_complete", entity_id=entity_id)
+
+            validated = self.validate(raw_data)
+            self.logger.debug(
+                "validation_complete", entity_id=entity_id, record_count=len(validated)
+            )
+
+            rows_affected = self.upsert(validated, conn)
+
+            duration_ms = int((time.monotonic() - start_time) * 1000)
+            self.logger.info(
+                "ingestion_completed",
+                entity_id=entity_id,
+                rows_affected=rows_affected,
+                duration_ms=duration_ms,
+            )
+            return {
+                "status": "SUCCESS",
+                "entity_id": entity_id,
+                "rows_affected": rows_affected,
+            }
+
+        except pydantic.ValidationError as e:
+            duration_ms = int((time.monotonic() - start_time) * 1000)
+            self.logger.exception(
+                "validation_failed",
+                entity_id=entity_id,
+                error_count=len(e.errors()),
+                errors=e.errors(),
+                duration_ms=duration_ms,
+            )
+            self._quarantine_data(entity_id, raw_data, str(e))
+            return {
+                "status": "FAILED",
+                "entity_id": entity_id,
+                "error": "ValidationError",
+                "error_message": str(e),
+            }
+
+        except sqlite3.Error as e:
+            duration_ms = int((time.monotonic() - start_time) * 1000)
+            self.logger.exception(
+                "database_error",
+                entity_id=entity_id,
+                error_type=type(e).__name__,
+                error=str(e),
+                duration_ms=duration_ms,
+            )
+            return {
+                "status": "FAILED",
+                "entity_id": entity_id,
+                "error": type(e).__name__,
+                "error_message": str(e),
+            }
+
+        except Exception as e:
+            duration_ms = int((time.monotonic() - start_time) * 1000)
+            self.logger.exception(
+                "ingestion_failed",
+                entity_id=entity_id,
+                error_type=type(e).__name__,
+                error=str(e),
+                duration_ms=duration_ms,
+            )
+            return {
+                "status": "FAILED",
+                "entity_id": entity_id,
+                "error": type(e).__name__,
+                "error_message": str(e),
+            }
 
     # ------------------------------------------------------------------
     # fetch / validate / upsert
@@ -171,71 +246,75 @@ class InjuryIngestor(BaseIngestor):
 
     def upsert(self, model: list[pydantic.BaseModel], conn: Any) -> int:
         rows_affected = 0
-        for item in model:
-            if not isinstance(item, InjuryCreate):
-                continue
-            injury = item
-            cursor = conn.execute(
-                """
-                SELECT injury_id FROM injury
-                WHERE player_id = ? AND injury_date = ? AND status = ?
-                """,
-                (injury.player_id, injury.injury_date, injury.status),
+
+        try:
+            conn.execute("BEGIN")
+
+            for item in model:
+                if not isinstance(item, InjuryCreate):
+                    continue
+                injury = item
+                cursor = conn.execute(
+                    """
+                    SELECT injury_id FROM injury
+                    WHERE player_id = ? AND injury_date = ? AND status = ?
+                    """,
+                    (injury.player_id, injury.injury_date, injury.status),
+                )
+                existing = cursor.fetchone()
+
+                if existing:
+                    conn.execute(
+                        """
+                        UPDATE injury SET
+                            team_id = ?, injury_type = ?, body_part = ?,
+                            games_missed = ?, return_date = ?, notes = ?
+                        WHERE injury_id = ?
+                        """,
+                        (
+                            injury.team_id,
+                            injury.injury_type,
+                            injury.body_part,
+                            injury.games_missed,
+                            injury.return_date,
+                            injury.notes,
+                            existing[0],
+                        ),
+                    )
+                else:
+                    conn.execute(
+                        """
+                        INSERT INTO injury
+                            (player_id, team_id, injury_date, injury_type,
+                             body_part, status, games_missed, return_date, notes)
+                        VALUES (?,?,?,?,?,?,?,?,?)
+                        """,
+                        (
+                            injury.player_id,
+                            injury.team_id,
+                            injury.injury_date,
+                            injury.injury_type,
+                            injury.body_part,
+                            injury.status,
+                            injury.games_missed,
+                            injury.return_date,
+                            injury.notes,
+                        ),
+                    )
+                rows_affected += 1
+
+            upsert_audit(conn, self.entity_type, "all", "web_scraping", "SUCCESS", rows_affected)
+            conn.execute("COMMIT")
+
+        except sqlite3.Error as exc:
+            conn.execute("ROLLBACK")
+            self.logger.error(
+                "injury_upsert_error",
+                rows_before_error=rows_affected,
+                error=str(exc),
             )
-            existing = cursor.fetchone()
+            raise
 
-            if existing:
-                conn.execute(
-                    """
-                    UPDATE injury SET
-                        team_id = ?, injury_type = ?, body_part = ?,
-                        games_missed = ?, return_date = ?, notes = ?
-                    WHERE injury_id = ?
-                    """,
-                    (
-                        injury.team_id,
-                        injury.injury_type,
-                        injury.body_part,
-                        injury.games_missed,
-                        injury.return_date,
-                        injury.notes,
-                        existing[0],
-                    ),
-                )
-            else:
-                conn.execute(
-                    """
-                    INSERT INTO injury
-                        (player_id, team_id, injury_date, injury_type,
-                         body_part, status, games_missed, return_date, notes)
-                    VALUES (?,?,?,?,?,?,?,?,?)
-                    """,
-                    (
-                        injury.player_id,
-                        injury.team_id,
-                        injury.injury_date,
-                        injury.injury_type,
-                        injury.body_part,
-                        injury.status,
-                        injury.games_missed,
-                        injury.return_date,
-                        injury.notes,
-                    ),
-                )
-            rows_affected += 1
-
-        conn.execute(
-            """
-            INSERT INTO ingestion_audit
-                (entity_type, entity_id, status, source, ingest_ts, row_count)
-            VALUES (?, ?, 'SUCCESS', 'web_scraping', datetime('now'), ?)
-            ON CONFLICT(entity_type, entity_id, source) DO UPDATE SET
-                ingest_ts = excluded.ingest_ts,
-                status    = excluded.status,
-                row_count = excluded.row_count
-            """,
-            (self.entity_type, "all", rows_affected),
-        )
         self.logger.info("Upserted injuries", rows_affected=rows_affected)
         return rows_affected
 

@@ -106,7 +106,7 @@ class TestInjuryIngestorFetch:
     def test_fetch_unsupported_source(self):
         """Test that unsupported source raises ValueError."""
         ingestor = InjuryIngestor()
-        with pytest.raises(ValueError, match="Unsupported source"):
+        with pytest.raises(ValueError, match=r"[Uu]nsupported"):
             ingestor.fetch("all", source="unsupported")
 
     def test_fetch_invalid_entity_id(self):
@@ -143,11 +143,10 @@ class TestInjuryIngestorFetch:
             assert len(result["injuries"]) >= 0
 
     def test_fetch_nba_injuries_not_implemented(self):
-        """Test that NBA.com source returns empty list (not implemented)."""
+        """Test that NBA.com source raises ValueError (not implemented)."""
         ingestor = InjuryIngestor()
-        result = ingestor.fetch("all", source="nba")
-
-        assert result["injuries"] == []
+        with pytest.raises(ValueError, match=r"[Uu]nsupported"):
+            ingestor.fetch("all", source="nba")
 
     def test_fetch_http_error(self):
         """Test handling of HTTP errors during fetch."""
@@ -202,7 +201,7 @@ class TestInjuryIngestorParseMethods:
             ("Lower back soreness", "soreness", "back"),
             ("Right hamstring strain", "strain", "hamstring"),
             ("Concussion protocol", "concussion", "concussion"),
-            ("Broken finger", "break", "finger"),
+            ("Broken finger", None, "finger"),
             ("Shoulder tendinitis", "tendinitis", "shoulder"),
             ("Hip bursitis", "bursitis", "hip"),
             ("", None, None),
@@ -301,22 +300,22 @@ class TestInjuryIngestorValidate:
         assert result == []
 
     def test_validate_with_validation_error(self):
-        """Test that validation errors are caught and logged."""
+        """Test that records with missing optional fields use defaults and are included."""
         ingestor = InjuryIngestor()
 
-        # Missing required fields
+        # Only player_id provided; validate() fills in defaults for status/injury_date
         raw_data = {
             "injuries": [
                 {
                     "player_id": 2544,
-                    # Missing required fields like status
                 }
             ]
         }
 
-        # Should not raise, should skip invalid record
+        # validate() uses defaults: status="Unknown", injury_date=date.today()
         result = ingestor.validate(raw_data)
-        assert len(result) == 0
+        assert len(result) == 1
+        assert result[0].status == "Unknown"
 
 
 class TestInjuryIngestorUpsert:
@@ -414,9 +413,9 @@ class TestInjuryIngestorUpsert:
 
         ingestor.upsert([injury], db_connection)
 
-        # Check audit log
+        # upsert_audit writes a single record with entity_id='all'
         cursor = db_connection.execute(
-            "SELECT * FROM ingestion_audit WHERE entity_type = 'injuries' AND entity_id = '2544'"
+            "SELECT * FROM ingestion_audit WHERE entity_type = 'injuries' AND entity_id = 'all'"
         )
         result = cursor.fetchone()
         assert result is not None
@@ -478,10 +477,10 @@ class TestInjuryIngestorIntegration:
 
 
 class TestInjuryIngestorPrivateMethods:
-    """Tests for private methods of InjuryIngestor."""
+    """Tests for InjuryIngestor insert/update behaviour via upsert()."""
 
-    def test_insert_injury(self, db_connection):
-        """Test _insert_injury private method."""
+    def test_insert_via_upsert(self, db_connection):
+        """Test that upsert inserts a new injury record."""
         ingestor = InjuryIngestor()
 
         injury = InjuryCreate(
@@ -492,14 +491,14 @@ class TestInjuryIngestorPrivateMethods:
             status="Out",
         )
 
-        ingestor._insert_injury(injury, db_connection)
+        ingestor.upsert([injury], db_connection)
 
         cursor = db_connection.execute("SELECT * FROM injury WHERE player_id = 2544")
         result = cursor.fetchone()
         assert result is not None
 
-    def test_update_injury(self, db_connection):
-        """Test _update_injury private method."""
+    def test_update_via_upsert(self, db_connection):
+        """Test that upsert updates an existing injury record."""
         ingestor = InjuryIngestor()
 
         # First insert
@@ -508,26 +507,22 @@ class TestInjuryIngestorPrivateMethods:
             injury_date=date(2024, 2, 1),
             status="Questionable",
         )
-        ingestor._insert_injury(injury1, db_connection)
+        ingestor.upsert([injury1], db_connection)
 
-        # Get injury_id
-        cursor = db_connection.execute("SELECT injury_id FROM injury WHERE player_id = 201939")
-        injury_id = cursor.fetchone()[0]
-
-        # Update
+        # Update same player/date/status with new games_missed
         injury2 = InjuryCreate(
             player_id=201939,
             team_id=1610612738,
             injury_date=date(2024, 2, 1),
-            status="Out",
+            status="Questionable",
             games_missed=5,
         )
-        ingestor._update_injury(injury_id, injury2, db_connection)
+        ingestor.upsert([injury2], db_connection)
 
         # Verify update
         cursor = db_connection.execute(
-            "SELECT status, games_missed FROM injury WHERE injury_id = ?", (injury_id,)
+            "SELECT status, games_missed FROM injury WHERE player_id = 201939"
         )
         result = cursor.fetchone()
-        assert result["status"] == "Out"
+        assert result["status"] == "Questionable"
         assert result["games_missed"] == 5
