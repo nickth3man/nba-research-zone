@@ -286,4 +286,3 @@ Pre-commit hooks automatically run:
 
 Install with: `uv run pre-commit install`
 
-test
