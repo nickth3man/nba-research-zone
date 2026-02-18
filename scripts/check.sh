@@ -17,4 +17,7 @@ echo "💾 Checking SQL files with SQLFluff..."
 uv run sqlfluff lint migrations --dialect sqlite
 uv run sqlfluff lint duckdb/views --dialect duckdb
 
+echo "🧪 Running tests with coverage..."
+uv run pytest --cov=nba_vault --cov-report=term-missing
+
 echo "✅ All checks passed!"

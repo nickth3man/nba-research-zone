@@ -16,4 +16,7 @@ uv run sqlfluff lint migrations --dialect sqlite
 Write-Host "  → Checking DuckDB views..." -ForegroundColor Gray
 uv run sqlfluff lint duckdb/views --dialect duckdb
 
+Write-Host "🧪 Running tests with coverage..." -ForegroundColor Cyan
+uv run pytest --cov=nba_vault --cov-report=term-missing
+
 Write-Host "✅ All checks passed!" -ForegroundColor Green

@@ -110,3 +110,301 @@ def test_model_validation_errors():
             last_name="Player",
             full_name="Test Player",
         )
+
+
+# ---------------------------------------------------------------------------
+# Additional model tests for full coverage
+# ---------------------------------------------------------------------------
+
+
+def test_coach_model():
+    from nba_vault.models.coach import Coach, CoachCreate
+
+    coach = CoachCreate(
+        coach_id=1001,
+        first_name="Steve",
+        last_name="Kerr",
+        full_name="Steve Kerr",
+        birthdate="1965-09-27",
+        college="Arizona",
+        is_active=True,
+    )
+    assert coach.coach_id == 1001
+    assert coach.is_active is True
+
+    full = Coach.model_validate(
+        {
+            "coach_id": 1001,
+            "first_name": "Steve",
+            "last_name": "Kerr",
+            "full_name": "Steve Kerr",
+        }
+    )
+    assert full.is_active is True  # default
+
+
+def test_franchise_model():
+    from nba_vault.models.franchise import Franchise, FranchiseCreate
+
+    franchise = FranchiseCreate(
+        franchise_id="LAL",
+        full_name="Los Angeles Lakers",
+        abbreviation="LAL",
+        city="Los Angeles",
+        nickname="Lakers",
+        league_id="NBA",
+        founded_year=1947,
+        folded_year=None,
+        is_active=True,
+    )
+    assert franchise.franchise_id == "LAL"
+    assert franchise.folded_year is None
+
+    full = Franchise.model_validate(
+        {
+            "franchise_id": "BOS",
+            "full_name": "Boston Celtics",
+            "abbreviation": "BOS",
+            "city": "Boston",
+            "nickname": "Celtics",
+            "league_id": "NBA",
+            "founded_year": 1946,
+        }
+    )
+    assert full.franchise_id == "BOS"
+
+
+def test_official_model():
+    from nba_vault.models.official import Official, OfficialCreate
+
+    official = OfficialCreate(
+        official_id=201,
+        first_name="Tony",
+        last_name="Brothers",
+        full_name="Tony Brothers",
+        jersey_num="25",
+    )
+    assert official.official_id == 201
+
+    full = Official.model_validate(
+        {
+            "official_id": 202,
+            "first_name": "Scott",
+            "last_name": "Foster",
+            "full_name": "Scott Foster",
+        }
+    )
+    assert full.official_id == 202
+
+
+def test_season_model():
+    from nba_vault.models.season import Season, SeasonCreate
+
+    season = SeasonCreate(
+        season_id=2024,
+        league_id="NBA",
+        season_name="2023-24",
+        season_type="Regular Season",
+        start_date="2023-10-24",
+        end_date="2024-04-14",
+    )
+    assert season.season_id == 2024
+    assert season.league_id == "NBA"
+
+    full = Season.model_validate(
+        {
+            "season_id": 2023,
+            "league_id": "NBA",
+            "season_name": "2022-23",
+        }
+    )
+    assert full.season_id == 2023
+
+
+def test_team_model():
+    from nba_vault.models.team import Team, TeamCreate
+
+    team = TeamCreate(
+        team_id=1610612747,
+        franchise_id="LAL",
+        season_id=2024,
+        full_name="Los Angeles Lakers",
+        abbreviation="LAL",
+        city="Los Angeles",
+        nickname="Lakers",
+        league_id="NBA",
+    )
+    assert team.team_id == 1610612747
+    assert team.abbreviation == "LAL"
+
+    full = Team.model_validate(
+        {
+            "team_id": 1610612738,
+            "franchise_id": "BOS",
+            "season_id": 2024,
+            "full_name": "Boston Celtics",
+            "abbreviation": "BOS",
+            "city": "Boston",
+            "nickname": "Celtics",
+            "league_id": "NBA",
+        }
+    )
+    assert full.team_id == 1610612738
+
+
+# ---------------------------------------------------------------------------
+# advanced_stats.py model tests
+# ---------------------------------------------------------------------------
+
+
+def test_team_game_other_stats_model():
+    from nba_vault.models.advanced_stats import TeamGameOtherStatsCreate
+
+    stats = TeamGameOtherStatsCreate(
+        game_id="0022300001",
+        team_id=1610612747,
+        season_id=2023,
+        points_paint=50,
+        points_fast_break=15,
+        largest_lead=22,
+    )
+    assert stats.game_id == "0022300001"
+    assert stats.points_paint == 50
+    assert stats.points_second_chance is None  # optional
+
+
+def test_player_game_tracking_model():
+    from nba_vault.models.advanced_stats import PlayerGameTrackingCreate
+
+    tracking = PlayerGameTrackingCreate(
+        game_id="0022300001",
+        player_id=2544,
+        team_id=1610612747,
+        season_id=2023,
+        distance_miles=3.2,
+        speed_mph_avg=4.5,
+        touches=80,
+    )
+    assert tracking.player_id == 2544
+    assert tracking.distance_miles == 3.2
+
+
+def test_lineup_create_unique_players():
+    from nba_vault.models.advanced_stats import LineupCreate
+
+    lineup = LineupCreate(
+        lineup_id="L001",
+        season_id=2023,
+        team_id=1610612747,
+        player_1_id=1,
+        player_2_id=2,
+        player_3_id=3,
+        player_4_id=4,
+        player_5_id=5,
+    )
+    assert lineup.lineup_id == "L001"
+
+
+def test_lineup_create_duplicate_players():
+    from nba_vault.models.advanced_stats import LineupCreate
+
+    with pytest.raises(ValidationError, match="unique"):
+        LineupCreate(
+            lineup_id="L001",
+            season_id=2023,
+            team_id=1610612747,
+            player_1_id=1,
+            player_2_id=1,  # duplicate
+            player_3_id=3,
+            player_4_id=4,
+            player_5_id=5,
+        )
+
+
+def test_injury_create_model():
+    from datetime import date
+
+    from nba_vault.models.advanced_stats import InjuryCreate
+
+    injury = InjuryCreate(
+        player_id=2544,
+        team_id=1610612747,
+        injury_date=date(2024, 1, 15),
+        injury_type="Ankle Sprain",
+        body_part="Ankle",
+        status="Out",
+        games_missed=3,
+    )
+    assert injury.player_id == 2544
+    assert injury.games_missed == 3
+
+
+def test_player_contract_create_valid():
+    from nba_vault.models.advanced_stats import PlayerContractCreate
+
+    contract = PlayerContractCreate(
+        player_id=2544,
+        team_id=1610612747,
+        season_start=2023,
+        season_end=2025,
+        salary_amount=46_000_000.0,
+        contract_type="Veteran",
+    )
+    assert contract.salary_amount == 46_000_000.0
+
+
+def test_player_contract_end_before_start():
+    from nba_vault.models.advanced_stats import PlayerContractCreate
+
+    with pytest.raises(ValidationError, match="after start"):
+        PlayerContractCreate(
+            player_id=2544,
+            team_id=1610612747,
+            season_start=2025,
+            season_end=2023,  # before start
+        )
+
+
+def test_team_season_advanced_model():
+    from nba_vault.models.advanced_stats import TeamSeasonAdvancedCreate
+
+    adv = TeamSeasonAdvancedCreate(
+        team_id=1610612747,
+        season_id=2023,
+        off_rating=115.2,
+        def_rating=110.5,
+        net_rating=4.7,
+        pace=100.1,
+        true_shooting_pct=0.582,
+    )
+    assert adv.net_rating == 4.7
+    assert adv.off_rating == 115.2
+
+
+def test_lineup_game_log_model():
+    from nba_vault.models.advanced_stats import LineupGameLogCreate
+
+    log = LineupGameLogCreate(
+        lineup_id="L001",
+        game_id="0022300001",
+        team_id=1610612747,
+        minutes_played=12.5,
+        plus_minus=8,
+        possessions=24,
+    )
+    assert log.plus_minus == 8
+
+
+def test_possession_create_model():
+    from nba_vault.models.advanced_stats import PossessionCreate
+
+    poss = PossessionCreate(
+        game_id="0022300001",
+        possession_number=1,
+        period=1,
+        start_time=0.0,
+        team_id=1610612747,
+        points_scored=2,
+        play_type="isolation",
+    )
+    assert poss.possession_number == 1

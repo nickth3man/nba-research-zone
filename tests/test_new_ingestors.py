@@ -517,3 +517,344 @@ class TestIngestorRegistry:
         contracts = create_ingestor("contracts")
         assert contracts is not None
         assert isinstance(contracts, ContractIngestor)
+
+
+# ---------------------------------------------------------------------------
+# Upsert tests (insert + idempotent re-upsert paths)
+# ---------------------------------------------------------------------------
+
+
+class TestPlayerTrackingUpsert:
+    """Integration tests for PlayerTrackingIngestor.upsert()."""
+
+    def test_upsert_inserts_new_record(self, db_connection):
+        from nba_vault.models.advanced_stats import PlayerGameTrackingCreate
+
+        ingestor = PlayerTrackingIngestor()
+        models = [
+            PlayerGameTrackingCreate(
+                game_id="0022300001",
+                player_id=2544,
+                team_id=1610612747,
+                season_id=2023,
+                minutes_played=38.5,
+                distance_miles=3.2,
+                touches=85,
+            )
+        ]
+        rows = ingestor.upsert(models, db_connection)
+        assert rows == 1
+
+        cursor = db_connection.execute(
+            "SELECT player_id FROM player_game_tracking WHERE game_id = '0022300001'"
+        )
+        row = cursor.fetchone()
+        assert row is not None
+        assert row[0] == 2544
+
+    def test_upsert_updates_existing_record(self, db_connection):
+        from nba_vault.models.advanced_stats import PlayerGameTrackingCreate
+
+        ingestor = PlayerTrackingIngestor()
+        model = PlayerGameTrackingCreate(
+            game_id="0022300002",
+            player_id=201939,
+            team_id=1610612738,
+            season_id=2023,
+            minutes_played=32.0,
+            distance_miles=2.8,
+        )
+        ingestor.upsert([model], db_connection)
+
+        # Re-upsert with updated distance
+        model2 = PlayerGameTrackingCreate(
+            game_id="0022300002",
+            player_id=201939,
+            team_id=1610612738,
+            season_id=2023,
+            minutes_played=32.0,
+            distance_miles=3.1,
+        )
+        rows = ingestor.upsert([model2], db_connection)
+        assert rows == 1
+
+        cursor = db_connection.execute(
+            "SELECT distance_miles FROM player_game_tracking "
+            "WHERE game_id = '0022300002' AND player_id = 201939"
+        )
+        assert cursor.fetchone()[0] == 3.1
+
+    def test_upsert_skips_non_tracking_models(self, db_connection):
+        from pydantic import BaseModel
+
+        class Other(BaseModel):
+            x: int = 1
+
+        ingestor = PlayerTrackingIngestor()
+        rows = ingestor.upsert([Other()], db_connection)
+        assert rows == 0
+
+
+class TestLineupsUpsert:
+    """Integration tests for LineupsIngestor.upsert()."""
+
+    def test_upsert_inserts_new_lineup(self, db_connection):
+        ingestor = LineupsIngestor()
+        models = [
+            LineupCreate(
+                lineup_id="LU0001",
+                season_id=2023,
+                team_id=1610612747,
+                player_1_id=1,
+                player_2_id=2,
+                player_3_id=3,
+                player_4_id=4,
+                player_5_id=5,
+                minutes_played=120.0,
+                points_scored=250,
+                points_allowed=240,
+            )
+        ]
+        rows = ingestor.upsert(models, db_connection)
+        assert rows == 1
+
+        cursor = db_connection.execute("SELECT team_id FROM lineup WHERE lineup_id = 'LU0001'")
+        assert cursor.fetchone() is not None
+
+    def test_upsert_updates_existing_lineup(self, db_connection):
+        ingestor = LineupsIngestor()
+        base = LineupCreate(
+            lineup_id="LU0002",
+            season_id=2023,
+            team_id=1610612747,
+            player_1_id=10,
+            player_2_id=20,
+            player_3_id=30,
+            player_4_id=40,
+            player_5_id=50,
+            minutes_played=50.0,
+        )
+        ingestor.upsert([base], db_connection)
+
+        updated = LineupCreate(
+            lineup_id="LU0002",
+            season_id=2023,
+            team_id=1610612747,
+            player_1_id=10,
+            player_2_id=20,
+            player_3_id=30,
+            player_4_id=40,
+            player_5_id=50,
+            minutes_played=99.0,
+        )
+        rows = ingestor.upsert([updated], db_connection)
+        assert rows == 1
+
+        cursor = db_connection.execute(
+            "SELECT minutes_played FROM lineup WHERE lineup_id = 'LU0002' AND season_id = 2023"
+        )
+        assert cursor.fetchone()[0] == 99.0
+
+
+class TestTeamOtherStatsUpsert:
+    """Integration tests for TeamOtherStatsIngestor.upsert()."""
+
+    def test_upsert_inserts_new_record(self, db_connection):
+        from nba_vault.models.advanced_stats import TeamGameOtherStatsCreate
+
+        ingestor = TeamOtherStatsIngestor()
+        models = [
+            TeamGameOtherStatsCreate(
+                game_id="0022300003",
+                team_id=1610612747,
+                season_id=2023,
+                points_paint=52,
+                points_fast_break=18,
+                largest_lead=20,
+            )
+        ]
+        rows = ingestor.upsert(models, db_connection)
+        assert rows == 1
+
+    def test_upsert_updates_existing_record(self, db_connection):
+        from nba_vault.models.advanced_stats import TeamGameOtherStatsCreate
+
+        ingestor = TeamOtherStatsIngestor()
+        model = TeamGameOtherStatsCreate(
+            game_id="0022300004",
+            team_id=1610612738,
+            season_id=2023,
+            points_paint=40,
+        )
+        ingestor.upsert([model], db_connection)
+
+        updated = TeamGameOtherStatsCreate(
+            game_id="0022300004",
+            team_id=1610612738,
+            season_id=2023,
+            points_paint=55,
+        )
+        rows = ingestor.upsert([updated], db_connection)
+        assert rows == 1
+
+
+class TestTeamAdvancedStatsUpsert:
+    """Integration tests for TeamAdvancedStatsIngestor.upsert()."""
+
+    def test_upsert_inserts_new_record(self, db_connection):
+        from nba_vault.models.advanced_stats import TeamSeasonAdvancedCreate
+
+        ingestor = TeamAdvancedStatsIngestor()
+        models = [
+            TeamSeasonAdvancedCreate(
+                team_id=1610612747,
+                season_id=2023,
+                off_rating=115.0,
+                def_rating=110.0,
+                net_rating=5.0,
+                pace=100.0,
+            )
+        ]
+        rows = ingestor.upsert(models, db_connection)
+        assert rows == 1
+
+        cursor = db_connection.execute(
+            "SELECT off_rating FROM team_season_advanced "
+            "WHERE team_id = 1610612747 AND season_id = 2023"
+        )
+        assert cursor.fetchone()[0] == 115.0
+
+    def test_upsert_updates_existing_record(self, db_connection):
+        from nba_vault.models.advanced_stats import TeamSeasonAdvancedCreate
+
+        ingestor = TeamAdvancedStatsIngestor()
+        model = TeamSeasonAdvancedCreate(
+            team_id=1610612738,
+            season_id=2023,
+            off_rating=112.0,
+            def_rating=108.0,
+        )
+        ingestor.upsert([model], db_connection)
+
+        updated = TeamSeasonAdvancedCreate(
+            team_id=1610612738,
+            season_id=2023,
+            off_rating=116.0,
+        )
+        rows = ingestor.upsert([updated], db_connection)
+        assert rows == 1
+
+
+class TestInjuryUpsert:
+    """Integration tests for InjuryIngestor.upsert()."""
+
+    def test_upsert_inserts_new_injury(self, db_connection):
+        from datetime import date
+
+        from nba_vault.models.advanced_stats import InjuryCreate
+
+        ingestor = InjuryIngestor()
+        models = [
+            InjuryCreate(
+                player_id=2544,
+                team_id=1610612747,
+                injury_date=date(2024, 1, 10),
+                injury_type="Ankle",
+                status="Out",
+                games_missed=2,
+            )
+        ]
+        rows = ingestor.upsert(models, db_connection)
+        assert rows == 1
+
+    def test_upsert_updates_existing_injury(self, db_connection):
+        from datetime import date
+
+        from nba_vault.models.advanced_stats import InjuryCreate
+
+        ingestor = InjuryIngestor()
+        model = InjuryCreate(
+            player_id=201939,
+            injury_date=date(2024, 2, 1),
+            status="Questionable",
+        )
+        ingestor.upsert([model], db_connection)
+
+        updated = InjuryCreate(
+            player_id=201939,
+            injury_date=date(2024, 2, 1),
+            status="Questionable",
+            games_missed=1,
+        )
+        rows = ingestor.upsert([updated], db_connection)
+        assert rows == 1
+
+    def test_upsert_skips_non_injury_models(self, db_connection):
+        from pydantic import BaseModel
+
+        class Other(BaseModel):
+            x: int = 1
+
+        ingestor = InjuryIngestor()
+        rows = ingestor.upsert([Other()], db_connection)
+        assert rows == 0
+
+
+class TestContractUpsert:
+    """Integration tests for ContractIngestor.upsert()."""
+
+    def test_upsert_inserts_new_contract(self, db_connection):
+        from nba_vault.models.advanced_stats import PlayerContractCreate
+
+        ingestor = ContractIngestor()
+        models = [
+            PlayerContractCreate(
+                player_id=2544,
+                team_id=1610612747,
+                season_start=2023,
+                season_end=2025,
+                salary_amount=46_000_000.0,
+                contract_type="Veteran",
+            )
+        ]
+        rows = ingestor.upsert(models, db_connection)
+        assert rows == 1
+
+        cursor = db_connection.execute(
+            "SELECT salary_amount FROM player_contract "
+            "WHERE player_id = 2544 AND season_start = 2023"
+        )
+        assert cursor.fetchone()[0] == 46_000_000.0
+
+    def test_upsert_updates_existing_contract(self, db_connection):
+        from nba_vault.models.advanced_stats import PlayerContractCreate
+
+        ingestor = ContractIngestor()
+        model = PlayerContractCreate(
+            player_id=201939,
+            team_id=1610612738,
+            season_start=2023,
+            season_end=2024,
+            salary_amount=30_000_000.0,
+        )
+        ingestor.upsert([model], db_connection)
+
+        updated = PlayerContractCreate(
+            player_id=201939,
+            team_id=1610612738,
+            season_start=2023,
+            season_end=2025,
+            salary_amount=32_000_000.0,
+        )
+        rows = ingestor.upsert([updated], db_connection)
+        assert rows == 1
+
+    def test_upsert_skips_non_contract_models(self, db_connection):
+        from pydantic import BaseModel
+
+        class Other(BaseModel):
+            x: int = 1
+
+        ingestor = ContractIngestor()
+        rows = ingestor.upsert([Other()], db_connection)
+        assert rows == 0

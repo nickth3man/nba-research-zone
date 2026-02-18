@@ -38,6 +38,7 @@ dev = [
     "pytest>=7.4.0",
     "pytest-cov>=4.1.0",
     "pytest-asyncio>=0.21.0",
+    "pytest-xdist>=3.5.0",
     "ruff>=0.9.0",
     "ty>=0.0.1",
     "pre-commit>=3.5.0",
@@ -128,7 +129,11 @@ testpaths = ["tests"]
 python_files = ["test_*.py"]
 python_classes = ["Test*"]
 python_functions = ["test_*"]
-addopts = "-v --cov=nba_vault --cov-report=term-missing"
+addopts = "-v --tb=short"
+# Coverage is opt-in — run explicitly when needed:
+#   uv run pytest --cov=nba_vault --cov-report=term-missing
+# Parallel execution (install pytest-xdist, already in dev deps):
+#   uv run pytest -n auto
 
 # Coverage configuration
 [tool.coverage.run]

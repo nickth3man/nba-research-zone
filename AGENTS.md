@@ -77,14 +77,17 @@ uv run nba-vault status
 ### Testing
 
 ```bash
-# Run all tests
+# Run all tests (fast — no coverage overhead)
 uv run pytest
+
+# Run in parallel using all CPU cores (pytest-xdist, ~2-3x faster)
+uv run pytest -n auto
+
+# Run with coverage (opt-in; also runs automatically via check.sh / check.ps1)
+uv run pytest --cov=nba_vault --cov-report=term-missing
 
 # Run specific test file
 uv run pytest tests/test_schema.py
-
-# Run with coverage
-uv run pytest --cov=nba_vault --cov-report=html
 
 # Run single test
 uv run pytest tests/test_schema.py::test_database_initialization
@@ -92,6 +95,9 @@ uv run pytest tests/test_schema.py::test_database_initialization
 # Run new ingestor tests
 uv run pytest tests/test_new_ingestors.py
 ```
+
+> **Coverage is intentionally not in `addopts`** so normal `uv run pytest` runs are fast.
+> The check scripts (`check.sh` / `check.ps1`) always pass `--cov` for full quality checks.
 
 ## Key Code Patterns
 
@@ -205,7 +211,12 @@ Access settings via `get_settings()` from `nba_vault.utils.config`. Settings are
 
 ### Entry Points
 
-- **CLI**: `nba_vault/cli.py` - Command-line interface (typer-based)
+- **CLI**: `nba_vault/cli/` - Command-line interface (typer-based, decomposed into sub-modules)
+  - `admin.py` — `init`, `migrate`, `status`, `validate`
+  - `ingestion.py` — `ingest-players`
+  - `advanced_stats.py` — `ingest-tracking`, `ingest-lineups`, `ingest-team-*`
+  - `scrapers.py` — `ingest-injuries`, `ingest-contracts`
+  - `export.py` — `export`
 - **Connection**: `nba_vault/schema/connection.py` - Database connection management
 - **Config**: `nba_vault/utils/config.py` - Settings management (pydantic-settings)
 - **Migrations**: `nba_vault/schema/migrations.py` - Migration runner (yoyo-migrations)
@@ -264,16 +275,38 @@ nba-vault ingest-contracts --source realgm
 
 ### Test Fixtures
 
-```python
-import pytest
-from nba_vault.schema.connection import get_db_connection
+`tests/conftest.py` defines three shared fixtures:
 
+```python
+# temp_db_path — private per-test DB file; use when a test needs to run
+# migrations itself (e.g. testing run_migrations() or rollback_migration())
 @pytest.fixture
-def db_connection():
-    conn = get_db_connection()
+def temp_db_path():
+    with tempfile.NamedTemporaryFile(suffix=".db", delete=False) as f:
+        yield Path(f.name)
+
+# migrated_db_path — session-scoped: migrations run ONCE per pytest session.
+# tmp_path_factory is xdist-safe; each worker gets its own temp directory.
+@pytest.fixture(scope="session")
+def migrated_db_path(tmp_path_factory):
+    db = tmp_path_factory.mktemp("session_db") / "test.db"
+    run_migrations(db)
+    return db
+
+# db_connection — function-scoped fresh connection to the session-migrated DB.
+# Do NOT wrap in BEGIN/ROLLBACK — ingestors call conn.execute("BEGIN") internally
+# and SQLite raises if BEGIN is nested. Tests use distinct entity IDs so
+# accumulated data across tests is safe.
+@pytest.fixture
+def db_connection(migrated_db_path):
+    conn = sqlite3.connect(str(migrated_db_path))
+    conn.row_factory = sqlite3.Row
     yield conn
     conn.close()
 ```
+
+**Rule**: use `db_connection` for tests that need an already-migrated schema.
+Use `temp_db_path` directly only for tests that exercise the migration machinery itself.
 
 ### Mocking API Responses
 
@@ -325,6 +358,18 @@ The project uses `ty` (by Astral) for type checking, version `>=0.0.1` (latest: 
 ### Pre-commit Config
 
 The pre-commit config file is `.pre-commit-config.yaml` (with a leading dot). An older version without the dot (`pre-commit-config.yaml`) was renamed. Always use the dotfile name.
+
+### pytest-xdist
+
+`pytest-xdist>=3.5.0` is installed as a dev dependency. Run parallel tests with:
+
+```bash
+uv run pytest -n auto           # use all physical CPU cores
+uv run pytest -n auto --dist=worksteal  # better for uneven test durations
+```
+
+The `migrated_db_path` session fixture is xdist-safe: `tmp_path_factory` creates a
+unique temp directory per worker, so each worker gets its own migrated SQLite file.
 
 ### CI Workflow
 
