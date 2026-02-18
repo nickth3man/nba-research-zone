@@ -1,0 +1,11 @@
+# SQLFluff ignore file
+# Similar to .gitignore, but for SQLFluff linting
+
+# Ignore generated or vendor SQL files
+*.sql.backup
+*.sql.bak
+
+# Ignore specific patterns if needed
+# The project currently lints all SQL files in:
+# - migrations/
+# - duckdb/views/

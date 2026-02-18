@@ -1,0 +1,8 @@
+# Yoyo migrations configuration
+
+# Source directory for migration files
+sources = migrations
+
+# Database connection string
+# This will be overridden by the application
+database = sqlite:///nba.sqlite

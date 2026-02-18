@@ -1,0 +1,112 @@
+# SQLFluff configuration for NBA Vault
+# https://docs.sqlfluff.com/en/stable/configuration/
+
+[sqlfluff]
+# Default dialect for most SQL files in this project
+# SQLite is used for the main database schema
+dialect = sqlite
+
+# File extensions to lint
+sql_file_exts = .sql
+
+# Line length limit (matches project's 100 char limit for Python)
+max_line_length = 100
+
+# Template engine (not using Jinja/dbt templates in this project)
+templater = raw
+
+# Ignore common patterns
+exclude_rules = """
+    layout.indent,              # Will be handled by formatter
+    layout.spacing,             # Minor spacing issues
+    capitalisation,             # Allow flexible capitalization
+    ambiguous.column_count,     # Some views have complex column counts
+    structure.column_order,     # Don't enforce specific column ordering
+    structure.subquery,         # Allow flexible subquery usage
+"""
+
+# Include specific SQL directories
+include = """
+    migrations/
+    duckdb/views/
+"""
+
+[sqlfluff:rules]
+# Allow scalar subqueries
+allow_scalar = True
+
+# Reference style for table/column references
+single_table_references = consistent
+
+# How to handle unquoted identifiers
+unquoted_identifiers_policy = all
+
+# Max characters allowed for a single line of code
+max_line_length = 100
+
+# Comma placement style (trailing commas)
+comma_style = trailing
+
+# Indent unit (spaces)
+indent_unit = space
+
+# Tab size (spaces per indent level)
+tab_space_size = 4
+
+# How to handle aliasing
+allow_qualify = True
+unquoted_identifiers_can_prefer_reserved = False
+
+[sqlfluff:layout:type:comma]
+# Comma placement
+spacing_before = touch
+line_position = trailing
+
+[sqlfluff:layout:type:colon]
+# Colon spacing (for CASE statements)
+spacing_before = touch
+spacing_after = touch
+
+[sqlfluff:layout:type:bracket]
+# Bracket spacing for function calls and subqueries
+spacing_before = touch
+spacing_after = touch
+
+[sqlfluff:rules:layout.long_lines]
+# How to handle long lines
+ignore_comment_lines = True
+ignore_comment_clauses = True
+
+[sqlfluff:rules:keyword_ordering]
+# Don't enforce specific keyword ordering (too restrictive)
+# enabled = False
+
+[sqlfluff:rules:aliasing]
+# Alias length preferences
+alias_length = 60_5  # Min 5, max 60 characters
+
+[sqlfluff:rules:convention]
+# Count/Star placement
+prefer_count_1 = False  # Allow COUNT(*) vs COUNT(1)
+# Table alignment
+allow_column_in_grouping = True
+
+# DuckDB-specific override for analytical views
+[sqlfluff:overrides.duckdb]
+dialect = duckdb
+# DuckDB supports modern SQL features
+exclude_rules = """
+    layout.indent,
+    layout.spacing,
+    capitalisation,
+"""
+
+# SQLite-specific override for migrations
+[sqlfluff:overrides.sqlite]
+dialect = sqlite
+# SQLite is more conservative with SQL features
+exclude_rules = """
+    layout.indent,
+    layout.spacing,
+    capitalisation,
+"""
