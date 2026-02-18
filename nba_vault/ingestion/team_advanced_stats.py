@@ -4,7 +4,8 @@ This ingestor fetches advanced team statistics from NBA.com Stats API,
 including offensive/defensive ratings, pace, four factors, etc.
 """
 
-from typing import Any
+import sqlite3
+from typing import Any, cast
 
 import pydantic
 import structlog
@@ -51,7 +52,7 @@ class TeamAdvancedStatsIngestor(BaseIngestor):
     def fetch(
         self,
         entity_id: str,
-        season: str,
+        season: str = "2023-24",
         season_type: str = "Regular Season",
         measure_type: str = "Advanced",
         **kwargs: Any,
@@ -127,13 +128,13 @@ class TeamAdvancedStatsIngestor(BaseIngestor):
         """
         data = raw.get("data", {})
         scope = raw.get("scope", "team")
-        season = raw.get("season")
+        season: str = raw.get("season") or "2023-24"
         team_id = raw.get("team_id")
 
-        validated_records = []
+        validated_records: list[pydantic.BaseModel] = []
 
         # Extract season_id from season string
-        season_year = int(season.split("-")[0])
+        season_year = int(season.split("-", maxsplit=1)[0])
         season_id = season_year
 
         # Process advanced stats data
@@ -154,7 +155,10 @@ class TeamAdvancedStatsIngestor(BaseIngestor):
                     if not row_team_id and team_id:
                         row_team_id = team_id
                     elif not row_team_id:
-                        # Skip if we can't determine team ID
+                        self.logger.warning(
+                            "Skipping advanced stats row: could not determine team_id",
+                            row_data=row_dict,
+                        )
                         continue
 
                     # If we're looking for a specific team and this isn't it, skip
@@ -163,42 +167,59 @@ class TeamAdvancedStatsIngestor(BaseIngestor):
 
                     # Map advanced stats fields
                     # NBA.com field names may vary, so we need to handle variations
-                    advanced_stats_data = {
-                        "team_id": self._safe_int(row_team_id),
-                        "season_id": season_id,
-                        "off_rating": self._safe_float(
-                            row_dict.get("OFF_RATING", row_dict.get("ORTG"))
-                        ),
-                        "def_rating": self._safe_float(
-                            row_dict.get("DEF_RATING", row_dict.get("DRTG"))
-                        ),
-                        "net_rating": self._safe_float(
-                            row_dict.get("NET_RATING", row_dict.get("NETRTG"))
-                        ),
-                        "pace": self._safe_float(row_dict.get("PACE")),
-                        "effective_fg_pct": self._safe_float(
-                            row_dict.get("EFG_pct", row_dict.get("EFG_PCT"))
-                        ),
-                        "turnover_pct": self._safe_float(
-                            row_dict.get("TM_TOV_pct", row_dict.get("TOV_PCT"))
-                        ),
-                        "offensive_rebound_pct": self._safe_float(
-                            row_dict.get("OREB_pct", row_dict.get("OREB_PCT"))
-                        ),
-                        "free_throw_rate": self._safe_float(
-                            row_dict.get("FTA_RATE", row_dict.get("FT_RATE"))
-                        ),
-                        "three_point_rate": self._safe_float(
-                            row_dict.get("FG3A_RATE", row_dict.get("THREE_POINT_RATE"))
-                        ),
-                        "true_shooting_pct": self._safe_float(
-                            row_dict.get("TS_pct", row_dict.get("TS_PCT"))
-                        ),
-                    }
+                    resolved_team_id = self._safe_int(row_team_id)
 
                     # Only add if we have a team_id
-                    if advanced_stats_data["team_id"]:
-                        validated_record = TeamSeasonAdvancedCreate(**advanced_stats_data)
+                    if resolved_team_id is not None:
+                        validated_record = TeamSeasonAdvancedCreate(
+                            team_id=cast("int", resolved_team_id),
+                            season_id=season_id,
+                            off_rating=cast(
+                                "float | None",
+                                self._safe_float(row_dict.get("OFF_RATING", row_dict.get("ORTG"))),
+                            ),
+                            def_rating=cast(
+                                "float | None",
+                                self._safe_float(row_dict.get("DEF_RATING", row_dict.get("DRTG"))),
+                            ),
+                            net_rating=cast(
+                                "float | None",
+                                self._safe_float(
+                                    row_dict.get("NET_RATING", row_dict.get("NETRTG"))
+                                ),
+                            ),
+                            pace=cast("float | None", self._safe_float(row_dict.get("PACE"))),
+                            effective_fg_pct=cast(
+                                "float | None",
+                                self._safe_float(row_dict.get("EFG_pct", row_dict.get("EFG_PCT"))),
+                            ),
+                            turnover_pct=cast(
+                                "float | None",
+                                self._safe_float(
+                                    row_dict.get("TM_TOV_pct", row_dict.get("TOV_PCT"))
+                                ),
+                            ),
+                            offensive_rebound_pct=cast(
+                                "float | None",
+                                self._safe_float(
+                                    row_dict.get("OREB_pct", row_dict.get("OREB_PCT"))
+                                ),
+                            ),
+                            free_throw_rate=cast(
+                                "float | None",
+                                self._safe_float(row_dict.get("FTA_RATE", row_dict.get("FT_RATE"))),
+                            ),
+                            three_point_rate=cast(
+                                "float | None",
+                                self._safe_float(
+                                    row_dict.get("FG3A_RATE", row_dict.get("THREE_POINT_RATE"))
+                                ),
+                            ),
+                            true_shooting_pct=cast(
+                                "float | None",
+                                self._safe_float(row_dict.get("TS_pct", row_dict.get("TS_PCT"))),
+                            ),
+                        )
                         validated_records.append(validated_record)
 
                 except pydantic.ValidationError as e:
@@ -225,42 +246,64 @@ class TeamAdvancedStatsIngestor(BaseIngestor):
         """
         rows_affected = 0
 
-        for stats_record in model:
-            if not isinstance(stats_record, TeamSeasonAdvancedCreate):
-                continue
+        try:
+            conn.execute("BEGIN")
 
-            # Check if record exists
-            cursor = conn.execute(
-                """
-                SELECT COUNT(*) FROM team_season_advanced
-                WHERE team_id = ? AND season_id = ?
-                """,
-                (stats_record.team_id, stats_record.season_id),
+            for stats_record in model:
+                if not isinstance(stats_record, TeamSeasonAdvancedCreate):
+                    continue
+
+                # Check if record exists
+                cursor = conn.execute(
+                    """
+                    SELECT COUNT(*) FROM team_season_advanced
+                    WHERE team_id = ? AND season_id = ?
+                    """,
+                    (stats_record.team_id, stats_record.season_id),
+                )
+                exists = cursor.fetchone()[0] > 0
+
+                if exists:
+                    # Update existing record
+                    self._update_advanced_stats(stats_record, conn)
+                    rows_affected += 1
+                else:
+                    # Insert new record
+                    self._insert_advanced_stats(stats_record, conn)
+                    rows_affected += 1
+
+                # Log to ingestion_audit
+                conn.execute(
+                    """
+                    INSERT INTO ingestion_audit
+                    (entity_type, entity_id, status, source, metadata, ingested_at)
+                    VALUES (?, ?, 'SUCCESS', 'nba_stats_api', ?, datetime('now'))
+                    """,
+                    (
+                        self.entity_type,
+                        f"{stats_record.team_id}_{stats_record.season_id}",
+                        f"season: {stats_record.season_id}, team: {stats_record.team_id}",
+                    ),
+                )
+
+            conn.execute("COMMIT")
+
+        except sqlite3.IntegrityError as exc:
+            conn.execute("ROLLBACK")
+            self.logger.warning(
+                "Integrity error during advanced stats upsert",
+                rows_before_error=rows_affected,
+                error=str(exc),
             )
-            exists = cursor.fetchone()[0] > 0
-
-            if exists:
-                # Update existing record
-                self._update_advanced_stats(stats_record, conn)
-                rows_affected += 1
-            else:
-                # Insert new record
-                self._insert_advanced_stats(stats_record, conn)
-                rows_affected += 1
-
-            # Log to ingestion_audit
-            conn.execute(
-                """
-                INSERT INTO ingestion_audit
-                (entity_type, entity_id, status, source, metadata, ingested_at)
-                VALUES (?, ?, 'SUCCESS', 'nba_stats_api', ?, datetime('now'))
-                """,
-                (
-                    self.entity_type,
-                    f"{stats_record.team_id}_{stats_record.season_id}",
-                    f"season: {stats_record.season_id}, team: {stats_record.team_id}",
-                ),
+            raise
+        except sqlite3.OperationalError as exc:
+            conn.execute("ROLLBACK")
+            self.logger.error(
+                "Operational error during advanced stats upsert",
+                rows_before_error=rows_affected,
+                error=str(exc),
             )
+            raise
 
         return rows_affected
 

@@ -67,7 +67,12 @@ def migrate(
 
     Applies pending migrations by default. Use --rollback to undo migrations.
     """
-    conn = get_db_connection()
+    try:
+        conn = get_db_connection()
+    except RuntimeError as e:
+        logger.error("Cannot open database", error=str(e))
+        typer.echo(f"✗ Cannot open database: {e}", err=True)
+        raise typer.Exit(code=1) from e
 
     try:
         if rollback:
@@ -179,7 +184,12 @@ def ingest_players(
     """
     from nba_vault.ingestion import create_ingestor
 
-    conn = get_db_connection()
+    try:
+        conn = get_db_connection()
+    except RuntimeError as e:
+        logger.error("Cannot open database", error=str(e))
+        typer.echo(f"✗ Cannot open database: {e}", err=True)
+        raise typer.Exit(code=1) from e
 
     try:
         # Create ingestor
@@ -203,8 +213,8 @@ def ingest_players(
         result = ingestor.ingest(entity_id, conn, season_end_year=season_end_year)
 
         # Check result
-        if result["status"] == "SUCCESS":
-            typer.echo(f"✓ Successfully ingested {result['rows_affected']} player(s)")
+        if result.get("status") == "SUCCESS":
+            typer.echo(f"✓ Successfully ingested {result.get('rows_affected', 0)} player(s)")
         else:
             typer.echo(
                 f"✗ Ingestion failed: {result.get('error_message', 'Unknown error')}",
@@ -256,7 +266,12 @@ def ingest_tracking(
     """
     from nba_vault.ingestion import create_ingestor
 
-    conn = get_db_connection()
+    try:
+        conn = get_db_connection()
+    except RuntimeError as e:
+        logger.error("Cannot open database", error=str(e))
+        typer.echo(f"✗ Cannot open database: {e}", err=True)
+        raise typer.Exit(code=1) from e
 
     try:
         # Create ingestor
@@ -281,8 +296,10 @@ def ingest_tracking(
         result = ingestor.ingest(entity_id, conn, season=season, season_type=season_type)
 
         # Check result
-        if result["status"] == "SUCCESS":
-            typer.echo(f"✓ Successfully ingested {result['rows_affected']} tracking record(s)")
+        if result.get("status") == "SUCCESS":
+            typer.echo(
+                f"✓ Successfully ingested {result.get('rows_affected', 0)} tracking record(s)"
+            )
         else:
             typer.echo(
                 f"✗ Ingestion failed: {result.get('error_message', 'Unknown error')}",
@@ -331,7 +348,12 @@ def ingest_lineups(
     """
     from nba_vault.ingestion import create_ingestor
 
-    conn = get_db_connection()
+    try:
+        conn = get_db_connection()
+    except RuntimeError as e:
+        logger.error("Cannot open database", error=str(e))
+        typer.echo(f"✗ Cannot open database: {e}", err=True)
+        raise typer.Exit(code=1) from e
 
     try:
         # Create ingestor
@@ -357,8 +379,8 @@ def ingest_lineups(
         result = ingestor.ingest(entity_id, conn, season=season, season_type=season_type)
 
         # Check result
-        if result["status"] == "SUCCESS":
-            typer.echo(f"✓ Successfully ingested {result['rows_affected']} lineup(s)")
+        if result.get("status") == "SUCCESS":
+            typer.echo(f"✓ Successfully ingested {result.get('rows_affected', 0)} lineup(s)")
         else:
             typer.echo(
                 f"✗ Ingestion failed: {result.get('error_message', 'Unknown error')}",
@@ -403,7 +425,12 @@ def ingest_team_other_stats(
     """
     from nba_vault.ingestion import create_ingestor
 
-    conn = get_db_connection()
+    try:
+        conn = get_db_connection()
+    except RuntimeError as e:
+        logger.error("Cannot open database", error=str(e))
+        typer.echo(f"✗ Cannot open database: {e}", err=True)
+        raise typer.Exit(code=1) from e
 
     try:
         # Create ingestor
@@ -428,8 +455,10 @@ def ingest_team_other_stats(
         result = ingestor.ingest(entity_id, conn, season=season)
 
         # Check result
-        if result["status"] == "SUCCESS":
-            typer.echo(f"✓ Successfully ingested {result['rows_affected']} other stats record(s)")
+        if result.get("status") == "SUCCESS":
+            typer.echo(
+                f"✓ Successfully ingested {result.get('rows_affected', 0)} other stats record(s)"
+            )
         else:
             typer.echo(
                 f"✗ Ingestion failed: {result.get('error_message', 'Unknown error')}",
@@ -483,7 +512,12 @@ def ingest_team_advanced_stats(
     """
     from nba_vault.ingestion import create_ingestor
 
-    conn = get_db_connection()
+    try:
+        conn = get_db_connection()
+    except RuntimeError as e:
+        logger.error("Cannot open database", error=str(e))
+        typer.echo(f"✗ Cannot open database: {e}", err=True)
+        raise typer.Exit(code=1) from e
 
     try:
         # Create ingestor
@@ -509,9 +543,9 @@ def ingest_team_advanced_stats(
         )
 
         # Check result
-        if result["status"] == "SUCCESS":
+        if result.get("status") == "SUCCESS":
             typer.echo(
-                f"✓ Successfully ingested {result['rows_affected']} advanced stats record(s)"
+                f"✓ Successfully ingested {result.get('rows_affected', 0)} advanced stats record(s)"
             )
         else:
             typer.echo(
@@ -550,7 +584,12 @@ def ingest_injuries(
     """
     from nba_vault.ingestion import create_ingestor
 
-    conn = get_db_connection()
+    try:
+        conn = get_db_connection()
+    except RuntimeError as e:
+        logger.error("Cannot open database", error=str(e))
+        typer.echo(f"✗ Cannot open database: {e}", err=True)
+        raise typer.Exit(code=1) from e
 
     try:
         # Create ingestor
@@ -572,8 +611,8 @@ def ingest_injuries(
         result = ingestor.ingest(entity_id, conn, source=source)
 
         # Check result
-        if result["status"] == "SUCCESS":
-            typer.echo(f"✓ Successfully ingested {result['rows_affected']} injury record(s)")
+        if result.get("status") == "SUCCESS":
+            typer.echo(f"✓ Successfully ingested {result.get('rows_affected', 0)} injury record(s)")
         else:
             typer.echo(
                 f"✗ Ingestion failed: {result.get('error_message', 'Unknown error')}",
@@ -611,7 +650,12 @@ def ingest_contracts(
     """
     from nba_vault.ingestion import create_ingestor
 
-    conn = get_db_connection()
+    try:
+        conn = get_db_connection()
+    except RuntimeError as e:
+        logger.error("Cannot open database", error=str(e))
+        typer.echo(f"✗ Cannot open database: {e}", err=True)
+        raise typer.Exit(code=1) from e
 
     try:
         # Create ingestor
@@ -633,8 +677,10 @@ def ingest_contracts(
         result = ingestor.ingest(entity_id, conn, source=source)
 
         # Check result
-        if result["status"] == "SUCCESS":
-            typer.echo(f"✓ Successfully ingested {result['rows_affected']} contract record(s)")
+        if result.get("status") == "SUCCESS":
+            typer.echo(
+                f"✓ Successfully ingested {result.get('rows_affected', 0)} contract record(s)"
+            )
         else:
             typer.echo(
                 f"✗ Ingestion failed: {result.get('error_message', 'Unknown error')}",
@@ -667,7 +713,13 @@ def validate(
     """
     logger.info("Running validation", checks=checks or ["all"])
 
-    conn = get_db_connection()
+    try:
+        conn = get_db_connection()
+    except RuntimeError as e:
+        logger.error("Cannot open database", error=str(e))
+        typer.echo(f"✗ Cannot open database: {e}", err=True)
+        raise typer.Exit(code=1) from e
+
     try:
         # TODO: Implement validation logic
         typer.echo("✗ Validation not yet implemented", err=True)
@@ -739,7 +791,13 @@ def status() -> None:
         typer.echo("Database not found. Run 'nba-vault init' to create it.")
         raise typer.Exit(code=1)
 
-    conn = get_db_connection()
+    try:
+        conn = get_db_connection()
+    except RuntimeError as e:
+        logger.error("Cannot open database", error=str(e))
+        typer.echo(f"✗ Cannot open database: {e}", err=True)
+        raise typer.Exit(code=1) from e
+
     try:
         # Get basic statistics
         cursor = conn.execute(
@@ -758,7 +816,10 @@ def status() -> None:
 
         for table_name, has_data in tables:
             if has_data:
-                count_cursor = conn.execute(f"SELECT COUNT(*) FROM {table_name}")  # noqa: S608
+                # Quote identifier to prevent SQL injection from unexpected table names
+                count_cursor = conn.execute(
+                    f'SELECT COUNT(*) FROM "{table_name}"'  # noqa: S608
+                )
                 count = count_cursor.fetchone()[0]
                 typer.echo(f"  • {table_name}: {count:,} rows")
             else:

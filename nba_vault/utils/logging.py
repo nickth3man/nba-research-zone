@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import sys
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
@@ -17,22 +18,28 @@ def setup_logging() -> None:
     """Configure structured logging for the application."""
     settings = get_settings()
 
-    # Ensure log directory exists
     log_dir = Path(settings.log_dir)
-    log_dir.mkdir(parents=True, exist_ok=True)
+    try:
+        log_dir.mkdir(parents=True, exist_ok=True)
+    except (PermissionError, OSError) as e:
+        print(
+            f"Warning: Could not create log directory '{log_dir}': {e}. "
+            "Falling back to stderr-only logging.",
+            file=sys.stderr,
+        )
 
     # Configure processors based on format
     processors: list[Processor] = [
         structlog.contextvars.merge_contextvars,
         structlog.stdlib.add_logger_name,
         structlog.stdlib.add_log_level,
-        structlog.process.TimeStamper(fmt="iso"),
-        structlog.process.StackInfoRenderer(),
-        structlog.process.UnicodeDecoder(),
+        structlog.processors.TimeStamper(fmt="iso"),
+        structlog.processors.StackInfoRenderer(),
+        structlog.processors.UnicodeDecoder(),
     ]
 
     if settings.log_format == "json":
-        processors.append(structlog.process.JSONRenderer())
+        processors.append(structlog.processors.JSONRenderer())
     else:
         processors.append(structlog.dev.ConsoleRenderer())
 

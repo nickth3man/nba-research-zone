@@ -14,6 +14,10 @@ from nba_vault.utils.rate_limit import RateLimiter
 logger = structlog.get_logger(__name__)
 
 
+class RateLimitError(Exception):
+    """Raised when the NBA.com API responds with HTTP 429 (Too Many Requests)."""
+
+
 class NBAStatsClient:
     """
     Client for NBA.com Stats API using nba_api library.
@@ -55,27 +59,41 @@ class NBAStatsClient:
         self.logger = logger.bind(component="nba_stats_client")
 
         try:
-            from nba_api.stats.endpoints import (  # noqa: PLC0415
-                boxscoresummaryv2,
-                leaguedashlineups,
-                leaguedashplayerstats,
-                leaguedashteamstats,
-                playerdashptstats,
-                teamdashlineups,
-                teamyearoveryearstats,
-            )
-            from nba_api.stats.static import players, teams  # noqa: PLC0415
+            import importlib  # noqa: PLC0415
 
-            self.endpoints = {
-                "leaguedashplayerstats": leaguedashplayerstats,
-                "leaguedashteamstats": leaguedashteamstats,
-                "playerdashptstats": playerdashptstats,
-                "teamdashlineups": teamdashlineups,
-                "boxscoresummaryv2": boxscoresummaryv2,
-                "leaguedashlineups": leaguedashlineups,
-                "teamyearoveryearstats": teamyearoveryearstats,
+            def _load_endpoint(module_path: str, class_name: str) -> Any:
+                mod = importlib.import_module(module_path)
+                return getattr(mod, class_name)
+
+            nba_endpoints = importlib.import_module("nba_api.stats.endpoints")
+            nba_static = importlib.import_module("nba_api.stats.static")
+
+            self.endpoints: dict[str, Any] = {
+                "leaguedashplayerstats": getattr(nba_endpoints, "LeagueDashPlayerStats", None)
+                or _load_endpoint(
+                    "nba_api.stats.endpoints.leaguedashplayerstats", "LeagueDashPlayerStats"
+                ),
+                "leaguedashteamstats": getattr(nba_endpoints, "LeagueDashTeamStats", None)
+                or _load_endpoint(
+                    "nba_api.stats.endpoints.leaguedashteamstats", "LeagueDashTeamStats"
+                ),
+                "playerdashptstats": getattr(nba_endpoints, "PlayerDashPtStats", None)
+                or _load_endpoint("nba_api.stats.endpoints.playerdashptstats", "PlayerDashPtStats"),
+                "teamdashlineups": getattr(nba_endpoints, "TeamDashLineups", None)
+                or _load_endpoint("nba_api.stats.endpoints.teamdashlineups", "TeamDashLineups"),
+                "boxscoresummaryv2": getattr(nba_endpoints, "BoxScoreSummaryV2", None)
+                or _load_endpoint("nba_api.stats.endpoints.boxscoresummaryv2", "BoxScoreSummaryV2"),
+                "leaguedashlineups": getattr(nba_endpoints, "LeagueDashLineups", None)
+                or _load_endpoint("nba_api.stats.endpoints.leaguedashlineups", "LeagueDashLineups"),
+                "teamyearoveryearstats": getattr(nba_endpoints, "TeamYearOverYearStats", None)
+                or _load_endpoint(
+                    "nba_api.stats.endpoints.teamyearoveryearstats", "TeamYearOverYearStats"
+                ),
             }
-            self.static = {"teams": teams, "players": players}
+            self.static: dict[str, Any] = {
+                "teams": getattr(nba_static, "teams", None),
+                "players": getattr(nba_static, "players", None),
+            }
         except ImportError as e:
             self.logger.error("nba_api not installed")
             raise ImportError("nba_api is required. Install with: pip install nba_api") from e
@@ -130,13 +148,19 @@ class NBAStatsClient:
 
             # Extract data from response
             # nba_api returns data in data_sets dict
-            result = {}
+            result: dict[str, Any] = {}
             if hasattr(response, "data_sets"):
                 for dataset_name, dataset in response.data_sets.items():
-                    # Get data as dict
                     result[dataset_name] = dataset.get_dict()
             elif hasattr(response, "dict"):
                 result = response.dict()
+
+            if not result:
+                self.logger.warning(
+                    "NBA Stats API returned empty response",
+                    endpoint=endpoint_name,
+                    params=params,
+                )
 
             # Cache the results
             self.cache.set(cache_key, result)
@@ -150,11 +174,49 @@ class NBAStatsClient:
             return result
 
         except Exception as e:
+            error_str = str(e)
+            error_type = type(e).__name__
+
+            # Detect HTTP 429 rate-limit responses surfaced by nba_api
+            if "429" in error_str or "too many requests" in error_str.lower():
+                self.logger.warning(
+                    "NBA Stats API rate limit hit (HTTP 429)",
+                    endpoint=endpoint_name,
+                )
+                raise RateLimitError(
+                    f"NBA.com rate limit exceeded for endpoint '{endpoint_name}'. "
+                    "Wait before retrying."
+                ) from e
+
+            # Detect timeout errors
+            if "timeout" in error_str.lower() or "timed out" in error_str.lower():
+                self.logger.warning(
+                    "NBA Stats API request timed out",
+                    endpoint=endpoint_name,
+                    timeout=self.timeout,
+                    error=error_str,
+                )
+                raise TimeoutError(
+                    f"Request to '{endpoint_name}' timed out after {self.timeout}s"
+                ) from e
+
+            # Detect connection errors
+            if "connection" in error_str.lower() or "network" in error_str.lower():
+                self.logger.error(
+                    "NBA Stats API connection error",
+                    endpoint=endpoint_name,
+                    error=error_str,
+                )
+                raise ConnectionError(
+                    f"Cannot connect to NBA Stats API for endpoint '{endpoint_name}': {e}"
+                ) from e
+
             self.logger.error(
                 "NBA Stats API request failed",
                 endpoint=endpoint_name,
                 params=params,
-                error=str(e),
+                error_type=error_type,
+                error=error_str,
             )
             raise
 

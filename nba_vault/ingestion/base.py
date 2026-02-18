@@ -1,5 +1,6 @@
 """Base class for data ingestors."""
 
+import sqlite3
 from abc import ABC, abstractmethod
 from typing import Any
 
@@ -51,15 +52,15 @@ class BaseIngestor(ABC):
         pass
 
     @abstractmethod
-    def validate(self, raw: dict[str, Any]) -> pydantic.BaseModel:
+    def validate(self, raw: dict[str, Any]) -> list[pydantic.BaseModel]:
         """
-        Validate raw data using Pydantic model.
+        Validate raw data using Pydantic model(s).
 
         Args:
             raw: Raw data dictionary.
 
         Returns:
-            Validated Pydantic model.
+            List of validated Pydantic models.
 
         Raises:
             pydantic.ValidationError: If validation fails.
@@ -67,12 +68,12 @@ class BaseIngestor(ABC):
         pass
 
     @abstractmethod
-    def upsert(self, model: pydantic.BaseModel, conn) -> int:
+    def upsert(self, model: list[pydantic.BaseModel], conn: Any) -> int:
         """
         Insert or update validated data in database.
 
         Args:
-            model: Validated Pydantic model.
+            model: List of validated Pydantic models.
             conn: SQLite database connection.
 
         Returns:
@@ -94,6 +95,9 @@ class BaseIngestor(ABC):
         Returns:
             Dictionary with ingestion metadata (rows affected, status, etc.).
         """
+        if not getattr(self, "entity_type", None):
+            raise AttributeError(f"{type(self).__name__} must define a non-empty 'entity_type'")
+
         self.logger.info("Starting ingestion", entity_id=entity_id)
 
         try:
@@ -133,6 +137,20 @@ class BaseIngestor(ABC):
                 "status": "FAILED",
                 "entity_id": entity_id,
                 "error": "ValidationError",
+                "error_message": str(e),
+            }
+
+        except sqlite3.Error as e:
+            self.logger.error(
+                "Database error during upsert",
+                entity_id=entity_id,
+                error_type=type(e).__name__,
+                error=str(e),
+            )
+            return {
+                "status": "FAILED",
+                "entity_id": entity_id,
+                "error": type(e).__name__,
                 "error_message": str(e),
             }
 

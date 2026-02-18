@@ -41,6 +41,8 @@ def test_settings_caching():
 
 def test_ensure_directories(tmp_path):
     """Test directory creation."""
+    from unittest.mock import patch
+
     from nba_vault.utils.config import Settings, ensure_directories
 
     # Create settings with temp paths
@@ -51,21 +53,13 @@ def test_ensure_directories(tmp_path):
     )
 
     # Patch get_settings to return our test settings
-    from nba_vault.utils import config
-
-    original_settings = config.get_settings
-    config.get_settings = lambda: settings
-
-    try:
+    with patch("nba_vault.utils.config.get_settings", return_value=settings):
         ensure_directories()
 
         # Check directories were created
         assert (tmp_path / "cache").exists()
         assert (tmp_path / "logs").exists()
         assert tmp_path.exists()
-    finally:
-        # Restore original settings
-        config.get_settings = original_settings
 
 
 def test_audit_logger(db_connection):

@@ -7,7 +7,12 @@ from nba_vault.ingestion.lineups import LineupsIngestor
 from nba_vault.ingestion.nba_stats_client import NBAStatsClient
 from nba_vault.ingestion.player_tracking import PlayerTrackingIngestor
 from nba_vault.ingestion.players import PlayersIngestor
-from nba_vault.ingestion.registry import get_ingestor, register_ingestor
+from nba_vault.ingestion.registry import (
+    create_ingestor,
+    get_ingestor,
+    list_ingestors,
+    register_ingestor,
+)
 from nba_vault.ingestion.team_advanced_stats import TeamAdvancedStatsIngestor
 from nba_vault.ingestion.team_other_stats import TeamOtherStatsIngestor
 
@@ -21,6 +26,8 @@ __all__ = [
     "PlayersIngestor",
     "TeamAdvancedStatsIngestor",
     "TeamOtherStatsIngestor",
+    "create_ingestor",
     "get_ingestor",
+    "list_ingestors",
     "register_ingestor",
 ]

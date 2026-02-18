@@ -1,6 +1,7 @@
 """Player data ingestor."""
 
-from typing import Any
+import sqlite3
+from typing import Any, cast
 
 import pydantic
 import structlog
@@ -111,43 +112,66 @@ class PlayersIngestor(BaseIngestor):
         """
         rows_affected = 0
 
-        for validated_player in model:
-            # Convert BasketballReferencePlayer to PlayerCreate
-            player_create = PlayerCreate.from_basketball_reference(validated_player)
+        try:
+            conn.execute("BEGIN")
 
-            # Check if player exists by bbref_id
-            cursor = conn.execute(
-                "SELECT player_id FROM player WHERE bbref_id = ?", (player_create.bbref_id,)
+            for validated_player in model:
+                # Convert BasketballReferencePlayer to PlayerCreate
+                br_player = cast("BasketballReferencePlayer", validated_player)
+                player_create = PlayerCreate.from_basketball_reference(br_player)
+
+                # Check if player exists by bbref_id
+                cursor = conn.execute(
+                    "SELECT player_id FROM player WHERE bbref_id = ?", (player_create.bbref_id,)
+                )
+                existing = cursor.fetchone()
+
+                if existing:
+                    # Update existing player
+                    player_create.player_id = existing[0]
+                    self._update_player(player_create, conn)
+                    rows_affected += 1
+                else:
+                    # Insert new player (generate player_id from max)
+                    cursor = conn.execute("SELECT COALESCE(MAX(player_id), 0) FROM player")
+                    max_id = cursor.fetchone()[0]
+                    player_create.player_id = max_id + 1
+
+                    self._insert_player(player_create, conn)
+                    rows_affected += 1
+
+                # Log to ingestion_audit
+                conn.execute(
+                    """
+                    INSERT INTO ingestion_audit
+                    (entity_type, entity_id, status, source, metadata, ingested_at)
+                    VALUES (?, ?, 'SUCCESS', 'basketball_reference', ?, datetime('now'))
+                    """,
+                    (
+                        self.entity_type,
+                        player_create.bbref_id,
+                        f"season: {br_player.slug}",
+                    ),
+                )
+
+            conn.execute("COMMIT")
+
+        except sqlite3.IntegrityError as exc:
+            conn.execute("ROLLBACK")
+            self.logger.warning(
+                "Integrity error during player upsert",
+                rows_before_error=rows_affected,
+                error=str(exc),
             )
-            existing = cursor.fetchone()
-
-            if existing:
-                # Update existing player
-                player_create.player_id = existing[0]
-                self._update_player(player_create, conn)
-                rows_affected += 1
-            else:
-                # Insert new player (generate player_id from max)
-                cursor = conn.execute("SELECT COALESCE(MAX(player_id), 0) FROM player")
-                max_id = cursor.fetchone()[0]
-                player_create.player_id = max_id + 1
-
-                self._insert_player(player_create, conn)
-                rows_affected += 1
-
-            # Log to ingestion_audit
-            conn.execute(
-                """
-                INSERT INTO ingestion_audit
-                (entity_type, entity_id, status, source, metadata, ingested_at)
-                VALUES (?, ?, 'SUCCESS', 'basketball_reference', ?, datetime('now'))
-                """,
-                (
-                    self.entity_type,
-                    player_create.bbref_id,
-                    f"season: {validated_player.slug}",
-                ),
+            raise
+        except sqlite3.OperationalError as exc:
+            conn.execute("ROLLBACK")
+            self.logger.error(
+                "Operational error during player upsert",
+                rows_before_error=rows_affected,
+                error=str(exc),
             )
+            raise
 
         return rows_affected
 

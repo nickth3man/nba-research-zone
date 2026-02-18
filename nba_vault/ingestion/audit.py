@@ -53,7 +53,15 @@ class AuditLogger:
                 """,
                 (entity_type, entity_id, source, ingest_ts, status, row_count, error_message),
             )
-            self.conn.commit()
+            try:
+                self.conn.commit()
+            except sqlite3.Error as commit_err:
+                self.logger.error(
+                    "Failed to commit audit log entry",
+                    entity_type=entity_type,
+                    entity_id=entity_id,
+                    error=str(commit_err),
+                )
         except sqlite3.Error as e:
             self.logger.error(
                 "Failed to write audit log",
@@ -73,17 +81,26 @@ class AuditLogger:
         Returns:
             Dictionary with status information or None if not found.
         """
-        cursor = self.conn.execute(
-            """
-            SELECT entity_type, entity_id, source, ingest_ts, status, row_count, error_message
-            FROM ingestion_audit
-            WHERE entity_type = ? AND entity_id = ?
-            ORDER BY ingest_ts DESC
-            LIMIT 1
-            """,
-            (entity_type, entity_id),
-        )
-        row = cursor.fetchone()
+        try:
+            cursor = self.conn.execute(
+                """
+                SELECT entity_type, entity_id, source, ingest_ts, status, row_count, error_message
+                FROM ingestion_audit
+                WHERE entity_type = ? AND entity_id = ?
+                ORDER BY ingest_ts DESC
+                LIMIT 1
+                """,
+                (entity_type, entity_id),
+            )
+            row = cursor.fetchone()
+        except sqlite3.Error as e:
+            self.logger.error(
+                "Failed to query audit status",
+                entity_type=entity_type,
+                entity_id=entity_id,
+                error=str(e),
+            )
+            return None
 
         if row is None:
             return None
@@ -108,36 +125,44 @@ class AuditLogger:
         Returns:
             List of dictionaries with failed entity information.
         """
-        if entity_type:
-            cursor = self.conn.execute(
-                """
-                SELECT entity_type, entity_id, source, ingest_ts, error_message
-                FROM ingestion_audit
-                WHERE entity_type = ? AND status = 'FAILED'
-                ORDER BY ingest_ts DESC
-                """,
-                (entity_type,),
-            )
-        else:
-            cursor = self.conn.execute(
-                """
-                SELECT entity_type, entity_id, source, ingest_ts, error_message
-                FROM ingestion_audit
-                WHERE status = 'FAILED'
-                ORDER BY ingest_ts DESC
-                """
-            )
+        try:
+            if entity_type:
+                cursor = self.conn.execute(
+                    """
+                    SELECT entity_type, entity_id, source, ingest_ts, error_message
+                    FROM ingestion_audit
+                    WHERE entity_type = ? AND status = 'FAILED'
+                    ORDER BY ingest_ts DESC
+                    """,
+                    (entity_type,),
+                )
+            else:
+                cursor = self.conn.execute(
+                    """
+                    SELECT entity_type, entity_id, source, ingest_ts, error_message
+                    FROM ingestion_audit
+                    WHERE status = 'FAILED'
+                    ORDER BY ingest_ts DESC
+                    """
+                )
 
-        return [
-            {
-                "entity_type": row[0],
-                "entity_id": row[1],
-                "source": row[2],
-                "ingest_ts": row[3],
-                "error_message": row[4],
-            }
-            for row in cursor.fetchall()
-        ]
+            return [
+                {
+                    "entity_type": row[0],
+                    "entity_id": row[1],
+                    "source": row[2],
+                    "ingest_ts": row[3],
+                    "error_message": row[4],
+                }
+                for row in cursor.fetchall()
+            ]
+        except sqlite3.Error as e:
+            self.logger.error(
+                "Failed to query failed entities",
+                entity_type=entity_type,
+                error=str(e),
+            )
+            return []
 
     def get_stats(self) -> dict[str, Any]:
         """
@@ -146,28 +171,32 @@ class AuditLogger:
         Returns:
             Dictionary with statistics.
         """
-        cursor = self.conn.execute(
-            """
-            SELECT
-                entity_type,
-                status,
-                COUNT(*) as count,
-                SUM(row_count) as total_rows
-            FROM ingestion_audit
-            GROUP BY entity_type, status
-            """
-        )
+        try:
+            cursor = self.conn.execute(
+                """
+                SELECT
+                    entity_type,
+                    status,
+                    COUNT(*) as count,
+                    SUM(row_count) as total_rows
+                FROM ingestion_audit
+                GROUP BY entity_type, status
+                """
+            )
 
-        stats = {}
-        for row in cursor.fetchall():
-            entity_type = row[0]
-            status = row[1]
-            count = row[2]
-            total_rows = row[3] or 0
+            stats: dict[str, Any] = {}
+            for row in cursor.fetchall():
+                entity_type = row[0]
+                status = row[1]
+                count = row[2]
+                total_rows = row[3] or 0
 
-            if entity_type not in stats:
-                stats[entity_type] = {}
+                if entity_type not in stats:
+                    stats[entity_type] = {}
 
-            stats[entity_type][status] = {"count": count, "total_rows": total_rows}
+                stats[entity_type][status] = {"count": count, "total_rows": total_rows}
 
-        return stats
+            return stats
+        except sqlite3.Error as e:
+            self.logger.error("Failed to query ingestion stats", error=str(e))
+            return {}

@@ -5,7 +5,8 @@ including speed, distance, touches, drives, and other movement metrics.
 Tracking data is available from the 2013-14 season onwards.
 """
 
-from typing import Any
+import sqlite3
+from typing import Any, cast
 
 import pydantic
 import structlog
@@ -50,7 +51,7 @@ class PlayerTrackingIngestor(BaseIngestor):
     def fetch(
         self,
         entity_id: str,
-        season: str,
+        season: str = "2023-24",
         season_type: str = "Regular Season",
         **kwargs: Any,
     ) -> dict[str, Any]:
@@ -120,13 +121,13 @@ class PlayerTrackingIngestor(BaseIngestor):
             pydantic.ValidationError: If validation fails.
         """
         data = raw.get("data", {})
-        player_id = raw.get("player_id")
-        season = raw.get("season")
+        player_id: int | None = raw.get("player_id")
+        season: str = raw.get("season") or "2023-24"
 
-        validated_records = []
+        validated_records: list[pydantic.BaseModel] = []
 
         # Extract season_id from season string (e.g., "2023-24" -> 2023)
-        season_year = int(season.split("-")[0])
+        season_year = int(season.split("-", maxsplit=1)[0])
         season_id = season_year
 
         # Process tracking stats data
@@ -144,35 +145,54 @@ class PlayerTrackingIngestor(BaseIngestor):
                     row_dict = dict(zip(headers, row, strict=False)) if headers else {}
 
                     # Extract relevant tracking fields
-                    tracking_data = {
-                        "game_id": row_dict.get("GAME_ID", f"season_{season_id}"),
-                        "player_id": player_id,
-                        "team_id": row_dict.get("TEAM_ID"),
-                        "season_id": season_id,
-                        "minutes_played": self._safe_float(row_dict.get("MIN")),
-                        "distance_miles": self._safe_float(row_dict.get("DIST_MILES")),
-                        "distance_miles_offensive": self._safe_float(
-                            row_dict.get("DIST_MILES_OFF")
-                        ),
-                        "distance_miles_defensive": self._safe_float(
-                            row_dict.get("DIST_MILES_DEF")
-                        ),
-                        "speed_mph_avg": self._safe_float(row_dict.get("SPD")),
-                        "speed_mph_max": self._safe_float(row_dict.get("MAX_SPEED")),
-                        "touches": self._safe_int(row_dict.get("TOUCHES")),
-                        "touches_catch_shoot": self._safe_int(row_dict.get("EFC")),
-                        "touches_paint": self._safe_int(row_dict.get("PAINT")),
-                        "touches_post_up": self._safe_int(row_dict.get("POST")),
-                        "drives": self._safe_int(row_dict.get("DRIVES")),
-                        "drives_pts": self._safe_int(row_dict.get("DRIVES_PTS")),
-                        "pull_up_shots": self._safe_int(row_dict.get("PULL_UP_FGA")),
-                        "pull_up_shots_made": self._safe_int(row_dict.get("PULL_UP_FGM")),
-                    }
+                    # player_id and team_id must be int for the model
+                    row_player_id = self._safe_int(row_dict.get("PLAYER_ID")) or player_id
+                    row_team_id = self._safe_int(row_dict.get("TEAM_ID"))
+                    if row_player_id is None or row_team_id is None:
+                        self.logger.warning(
+                            "Skipping tracking row: missing player_id or team_id",
+                            player_id=row_player_id,
+                            team_id=row_team_id,
+                        )
+                        continue
+                    game_id_val = row_dict.get("GAME_ID")
+                    game_id_str: str = (
+                        str(game_id_val) if game_id_val is not None else f"season_{season_id}"
+                    )
 
-                    # Only add if we have meaningful data
-                    if any(v is not None for v in tracking_data.values()):
-                        validated_record = PlayerGameTrackingCreate(**tracking_data)
-                        validated_records.append(validated_record)
+                    validated_record = PlayerGameTrackingCreate(
+                        game_id=game_id_str,
+                        player_id=int(row_player_id),
+                        team_id=int(row_team_id),
+                        season_id=season_id,
+                        minutes_played=cast("float | None", self._safe_float(row_dict.get("MIN"))),
+                        distance_miles=cast(
+                            "float | None", self._safe_float(row_dict.get("DIST_MILES"))
+                        ),
+                        distance_miles_offensive=cast(
+                            "float | None", self._safe_float(row_dict.get("DIST_MILES_OFF"))
+                        ),
+                        distance_miles_defensive=cast(
+                            "float | None", self._safe_float(row_dict.get("DIST_MILES_DEF"))
+                        ),
+                        speed_mph_avg=cast("float | None", self._safe_float(row_dict.get("SPD"))),
+                        speed_mph_max=cast(
+                            "float | None", self._safe_float(row_dict.get("MAX_SPEED"))
+                        ),
+                        touches=cast("int | None", self._safe_int(row_dict.get("TOUCHES"))),
+                        touches_catch_shoot=cast("int | None", self._safe_int(row_dict.get("EFC"))),
+                        touches_paint=cast("int | None", self._safe_int(row_dict.get("PAINT"))),
+                        touches_post_up=cast("int | None", self._safe_int(row_dict.get("POST"))),
+                        drives=cast("int | None", self._safe_int(row_dict.get("DRIVES"))),
+                        drives_pts=cast("int | None", self._safe_int(row_dict.get("DRIVES_PTS"))),
+                        pull_up_shots=cast(
+                            "int | None", self._safe_int(row_dict.get("PULL_UP_FGA"))
+                        ),
+                        pull_up_shots_made=cast(
+                            "int | None", self._safe_int(row_dict.get("PULL_UP_FGM"))
+                        ),
+                    )
+                    validated_records.append(validated_record)
 
                 except pydantic.ValidationError as e:
                     self.logger.error(
@@ -198,42 +218,64 @@ class PlayerTrackingIngestor(BaseIngestor):
         """
         rows_affected = 0
 
-        for tracking_record in model:
-            if not isinstance(tracking_record, PlayerGameTrackingCreate):
-                continue
+        try:
+            conn.execute("BEGIN")
 
-            # Check if record exists
-            cursor = conn.execute(
-                """
-                SELECT COUNT(*) FROM player_game_tracking
-                WHERE game_id = ? AND player_id = ?
-                """,
-                (tracking_record.game_id, tracking_record.player_id),
+            for tracking_record in model:
+                if not isinstance(tracking_record, PlayerGameTrackingCreate):
+                    continue
+
+                # Check if record exists
+                cursor = conn.execute(
+                    """
+                    SELECT COUNT(*) FROM player_game_tracking
+                    WHERE game_id = ? AND player_id = ?
+                    """,
+                    (tracking_record.game_id, tracking_record.player_id),
+                )
+                exists = cursor.fetchone()[0] > 0
+
+                if exists:
+                    # Update existing record
+                    self._update_tracking(tracking_record, conn)
+                    rows_affected += 1
+                else:
+                    # Insert new record
+                    self._insert_tracking(tracking_record, conn)
+                    rows_affected += 1
+
+                # Log to ingestion_audit
+                conn.execute(
+                    """
+                    INSERT INTO ingestion_audit
+                    (entity_type, entity_id, status, source, metadata, ingested_at)
+                    VALUES (?, ?, 'SUCCESS', 'nba_stats_api', ?, datetime('now'))
+                    """,
+                    (
+                        self.entity_type,
+                        f"{tracking_record.game_id}_{tracking_record.player_id}",
+                        f"season: {tracking_record.season_id}",
+                    ),
+                )
+
+            conn.execute("COMMIT")
+
+        except sqlite3.IntegrityError as exc:
+            conn.execute("ROLLBACK")
+            self.logger.warning(
+                "Integrity error during tracking upsert",
+                rows_before_error=rows_affected,
+                error=str(exc),
             )
-            exists = cursor.fetchone()[0] > 0
-
-            if exists:
-                # Update existing record
-                self._update_tracking(tracking_record, conn)
-                rows_affected += 1
-            else:
-                # Insert new record
-                self._insert_tracking(tracking_record, conn)
-                rows_affected += 1
-
-            # Log to ingestion_audit
-            conn.execute(
-                """
-                INSERT INTO ingestion_audit
-                (entity_type, entity_id, status, source, metadata, ingested_at)
-                VALUES (?, ?, 'SUCCESS', 'nba_stats_api', ?, datetime('now'))
-                """,
-                (
-                    self.entity_type,
-                    f"{tracking_record.game_id}_{tracking_record.player_id}",
-                    f"season: {tracking_record.season_id}",
-                ),
+            raise
+        except sqlite3.OperationalError as exc:
+            conn.execute("ROLLBACK")
+            self.logger.error(
+                "Operational error during tracking upsert",
+                rows_before_error=rows_affected,
+                error=str(exc),
             )
+            raise
 
         return rows_affected
 

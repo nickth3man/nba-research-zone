@@ -5,7 +5,8 @@ including performance metrics for specific player combinations.
 """
 
 import hashlib
-from typing import Any
+import sqlite3
+from typing import Any, cast
 
 import pydantic
 import structlog
@@ -77,7 +78,7 @@ class LineupsIngestor(BaseIngestor):
     def fetch(
         self,
         entity_id: str,
-        season: str,
+        season: str = "2023-24",
         season_type: str = "Regular Season",
         **kwargs: Any,
     ) -> dict[str, Any]:
@@ -162,13 +163,13 @@ class LineupsIngestor(BaseIngestor):
             pydantic.ValidationError: If validation fails.
         """
         data = raw.get("data", {})
-        season = raw.get("season")
-        team_id = raw.get("team_id")
+        season: str = raw.get("season") or "2023-24"
+        team_id: int | None = raw.get("team_id")
 
-        validated_lineups = []
+        validated_lineups: list[pydantic.BaseModel] = []
 
         # Extract season_id from season string (e.g., "2023-24" -> 2023)
-        season_year = int(season.split("-")[0])
+        season_year = int(season.split("-", maxsplit=1)[0])
         season_id = season_year
 
         # Process lineup stats data
@@ -189,39 +190,58 @@ class LineupsIngestor(BaseIngestor):
                     player_ids = self._extract_player_ids(row_dict)
 
                     if len(player_ids) != 5:
-                        # Skip lineups that don't have exactly 5 players
+                        self.logger.warning(
+                            "Skipping lineup: expected 5 player IDs",
+                            found=len(player_ids),
+                            row_data=row_dict,
+                        )
                         continue
 
                     # Generate lineup ID
                     lineup_id = generate_lineup_id(*player_ids)
 
                     # Extract team ID from row or use the team_id from request
-                    lineup_team_id = row_dict.get("TEAM_ID") or team_id
+                    row_team_id = self._safe_int(row_dict.get("TEAM_ID")) or team_id
+                    if row_team_id is None:
+                        self.logger.warning(
+                            "Skipping lineup: could not determine team_id",
+                            row_data=row_dict,
+                        )
+                        continue
 
-                    lineup_data = {
-                        "lineup_id": lineup_id,
-                        "season_id": season_id,
-                        "team_id": lineup_team_id,
-                        "player_1_id": player_ids[0],
-                        "player_2_id": player_ids[1],
-                        "player_3_id": player_ids[2],
-                        "player_4_id": player_ids[3],
-                        "player_5_id": player_ids[4],
-                        "minutes_played": self._safe_float(row_dict.get("MIN")),
-                        "possessions": self._safe_int(row_dict.get("POSS")),
-                        "points_scored": self._safe_int(row_dict.get("PTS")),
-                        "points_allowed": self._safe_int(
-                            row_dict.get("PTS_ALLOWED", row_dict.get("OPP_PTS"))
-                        ),
-                        "off_rating": self._safe_float(row_dict.get("OFF_RATING")),
-                        "def_rating": self._safe_float(row_dict.get("DEF_RATING")),
-                        "net_rating": self._safe_float(row_dict.get("NET_RATING")),
-                    }
-
+                    minutes = cast("float | None", self._safe_float(row_dict.get("MIN")))
                     # Only add if we have meaningful data
-                    if lineup_data["minutes_played"] and lineup_data["minutes_played"] > 0:
-                        validated_lineup = LineupCreate(**lineup_data)
-                        validated_lineups.append(validated_lineup)
+                    if not minutes or minutes <= 0:
+                        continue
+
+                    validated_lineup = LineupCreate(
+                        lineup_id=lineup_id,
+                        season_id=season_id,
+                        team_id=int(row_team_id),
+                        player_1_id=player_ids[0],
+                        player_2_id=player_ids[1],
+                        player_3_id=player_ids[2],
+                        player_4_id=player_ids[3],
+                        player_5_id=player_ids[4],
+                        minutes_played=minutes,
+                        possessions=cast("int", self._safe_int(row_dict.get("POSS")) or 0),
+                        points_scored=cast("int", self._safe_int(row_dict.get("PTS")) or 0),
+                        points_allowed=cast(
+                            "int",
+                            self._safe_int(row_dict.get("PTS_ALLOWED", row_dict.get("OPP_PTS")))
+                            or 0,
+                        ),
+                        off_rating=cast(
+                            "float | None", self._safe_float(row_dict.get("OFF_RATING"))
+                        ),
+                        def_rating=cast(
+                            "float | None", self._safe_float(row_dict.get("DEF_RATING"))
+                        ),
+                        net_rating=cast(
+                            "float | None", self._safe_float(row_dict.get("NET_RATING"))
+                        ),
+                    )
+                    validated_lineups.append(validated_lineup)
 
                 except pydantic.ValidationError as e:
                     self.logger.error(
@@ -247,42 +267,64 @@ class LineupsIngestor(BaseIngestor):
         """
         rows_affected = 0
 
-        for lineup in model:
-            if not isinstance(lineup, LineupCreate):
-                continue
+        try:
+            conn.execute("BEGIN")
 
-            # Check if lineup exists
-            cursor = conn.execute(
-                """
-                SELECT COUNT(*) FROM lineup
-                WHERE lineup_id = ? AND season_id = ?
-                """,
-                (lineup.lineup_id, lineup.season_id),
+            for lineup in model:
+                if not isinstance(lineup, LineupCreate):
+                    continue
+
+                # Check if lineup exists
+                cursor = conn.execute(
+                    """
+                    SELECT COUNT(*) FROM lineup
+                    WHERE lineup_id = ? AND season_id = ?
+                    """,
+                    (lineup.lineup_id, lineup.season_id),
+                )
+                exists = cursor.fetchone()[0] > 0
+
+                if exists:
+                    # Update existing lineup
+                    self._update_lineup(lineup, conn)
+                    rows_affected += 1
+                else:
+                    # Insert new lineup
+                    self._insert_lineup(lineup, conn)
+                    rows_affected += 1
+
+                # Log to ingestion_audit
+                conn.execute(
+                    """
+                    INSERT INTO ingestion_audit
+                    (entity_type, entity_id, status, source, metadata, ingested_at)
+                    VALUES (?, ?, 'SUCCESS', 'nba_stats_api', ?, datetime('now'))
+                    """,
+                    (
+                        self.entity_type,
+                        lineup.lineup_id,
+                        f"season: {lineup.season_id}, team: {lineup.team_id}",
+                    ),
+                )
+
+            conn.execute("COMMIT")
+
+        except sqlite3.IntegrityError as exc:
+            conn.execute("ROLLBACK")
+            self.logger.warning(
+                "Integrity error during lineup upsert",
+                rows_before_error=rows_affected,
+                error=str(exc),
             )
-            exists = cursor.fetchone()[0] > 0
-
-            if exists:
-                # Update existing lineup
-                self._update_lineup(lineup, conn)
-                rows_affected += 1
-            else:
-                # Insert new lineup
-                self._insert_lineup(lineup, conn)
-                rows_affected += 1
-
-            # Log to ingestion_audit
-            conn.execute(
-                """
-                INSERT INTO ingestion_audit
-                (entity_type, entity_id, status, source, metadata, ingested_at)
-                VALUES (?, ?, 'SUCCESS', 'nba_stats_api', ?, datetime('now'))
-                """,
-                (
-                    self.entity_type,
-                    lineup.lineup_id,
-                    f"season: {lineup.season_id}, team: {lineup.team_id}",
-                ),
+            raise
+        except sqlite3.OperationalError as exc:
+            conn.execute("ROLLBACK")
+            self.logger.error(
+                "Operational error during lineup upsert",
+                rows_before_error=rows_affected,
+                error=str(exc),
             )
+            raise
 
         return rows_affected
 

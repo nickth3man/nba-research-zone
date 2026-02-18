@@ -4,7 +4,8 @@ This ingestor fetches team game "other stats" from NBA.com Stats API,
 including paint points, fast break points, second chance points, etc.
 """
 
-from typing import Any
+import sqlite3
+from typing import Any, cast
 
 import pydantic
 import structlog
@@ -118,13 +119,13 @@ class TeamOtherStatsIngestor(BaseIngestor):
             pydantic.ValidationError: If validation fails.
         """
         data = raw.get("data", {})
-        game_id = raw.get("game_id")
-        season = raw.get("season")
+        game_id: str = raw.get("game_id") or ""
+        season: str | None = raw.get("season")
 
-        validated_records = []
+        validated_records: list[pydantic.BaseModel] = []
 
         # Extract season_id if provided
-        season_id = None
+        season_id: int | None = None
         if season:
             season_year = int(season.split("-")[0])
             season_id = season_year
@@ -150,44 +151,85 @@ class TeamOtherStatsIngestor(BaseIngestor):
                         # Determine if this is home or away team
                         team_id = row_dict.get("TEAM_ID")
                         if not team_id:
+                            self.logger.warning(
+                                "Skipping other stats row: missing TEAM_ID",
+                                row_data=row_dict,
+                            )
                             continue
 
                         # Extract other stats fields
-                        # These fields may vary, so we need to handle various naming conventions
-                        other_stats_data = {
-                            "game_id": game_id,
-                            "team_id": self._safe_int(team_id),
-                            "season_id": season_id,
-                            "points_paint": self._safe_int(
-                                row_dict.get("PTS_PAINT", row_dict.get("PTS_IN_PAINT"))
-                            ),
-                            "points_second_chance": self._safe_int(
-                                row_dict.get("PTS_2ND_CHANCE", row_dict.get("PTS_2NDCHANCE"))
-                            ),
-                            "points_fast_break": self._safe_int(
-                                row_dict.get("PTS_FB", row_dict.get("PTS_FAST_BREAK"))
-                            ),
-                            "largest_lead": self._safe_int(row_dict.get("LARGEST_LEAD")),
-                            "lead_changes": self._safe_int(row_dict.get("LEAD_CHANGES")),
-                            "times_tied": self._safe_int(row_dict.get("TIMES_TIED")),
-                            "team_turnovers": self._safe_int(
-                                row_dict.get("TEAM_TURNOVERS", row_dict.get("TEAM_TO"))
-                            ),
-                            "total_turnovers": self._safe_int(
-                                row_dict.get("TOT_TO", row_dict.get("TOTAL_TURNOVERS"))
-                            ),
-                            "team_rebounds": self._safe_int(
-                                row_dict.get("TEAM_REBOUNDS", row_dict.get("TEAM_REB"))
-                            ),
-                            "points_off_turnovers": self._safe_int(
-                                row_dict.get("PTS_OFF_TO", row_dict.get("PTS_OFF_TURNOVERS"))
-                            ),
-                        }
+                        row_team_id = self._safe_int(team_id)
+                        if not row_team_id:
+                            self.logger.warning(
+                                "Skipping other stats row: invalid TEAM_ID",
+                                raw_team_id=team_id,
+                            )
+                            continue
 
-                        # Only add if we have a team_id
-                        if other_stats_data["team_id"]:
-                            validated_record = TeamGameOtherStatsCreate(**other_stats_data)
-                            validated_records.append(validated_record)
+                        if season_id is None:
+                            self.logger.warning(
+                                "Skipping other stats row: season_id is None",
+                                game_id=game_id,
+                            )
+                            continue
+
+                        validated_record = TeamGameOtherStatsCreate(
+                            game_id=game_id,
+                            team_id=int(row_team_id),
+                            season_id=season_id,
+                            points_paint=cast(
+                                "int | None",
+                                self._safe_int(
+                                    row_dict.get("PTS_PAINT", row_dict.get("PTS_IN_PAINT"))
+                                ),
+                            ),
+                            points_second_chance=cast(
+                                "int | None",
+                                self._safe_int(
+                                    row_dict.get("PTS_2ND_CHANCE", row_dict.get("PTS_2NDCHANCE"))
+                                ),
+                            ),
+                            points_fast_break=cast(
+                                "int | None",
+                                self._safe_int(
+                                    row_dict.get("PTS_FB", row_dict.get("PTS_FAST_BREAK"))
+                                ),
+                            ),
+                            largest_lead=cast(
+                                "int | None", self._safe_int(row_dict.get("LARGEST_LEAD"))
+                            ),
+                            lead_changes=cast(
+                                "int | None", self._safe_int(row_dict.get("LEAD_CHANGES"))
+                            ),
+                            times_tied=cast(
+                                "int | None", self._safe_int(row_dict.get("TIMES_TIED"))
+                            ),
+                            team_turnovers=cast(
+                                "int | None",
+                                self._safe_int(
+                                    row_dict.get("TEAM_TURNOVERS", row_dict.get("TEAM_TO"))
+                                ),
+                            ),
+                            total_turnovers=cast(
+                                "int | None",
+                                self._safe_int(
+                                    row_dict.get("TOT_TO", row_dict.get("TOTAL_TURNOVERS"))
+                                ),
+                            ),
+                            team_rebounds=cast(
+                                "int | None",
+                                self._safe_int(
+                                    row_dict.get("TEAM_REBOUNDS", row_dict.get("TEAM_REB"))
+                                ),
+                            ),
+                            points_off_turnovers=cast(
+                                "int | None",
+                                self._safe_int(
+                                    row_dict.get("PTS_OFF_TO", row_dict.get("PTS_OFF_TURNOVERS"))
+                                ),
+                            ),
+                        )
+                        validated_records.append(validated_record)
 
                     except pydantic.ValidationError as e:
                         self.logger.error(
@@ -213,42 +255,64 @@ class TeamOtherStatsIngestor(BaseIngestor):
         """
         rows_affected = 0
 
-        for stats_record in model:
-            if not isinstance(stats_record, TeamGameOtherStatsCreate):
-                continue
+        try:
+            conn.execute("BEGIN")
 
-            # Check if record exists
-            cursor = conn.execute(
-                """
-                SELECT COUNT(*) FROM team_game_other_stats
-                WHERE game_id = ? AND team_id = ?
-                """,
-                (stats_record.game_id, stats_record.team_id),
+            for stats_record in model:
+                if not isinstance(stats_record, TeamGameOtherStatsCreate):
+                    continue
+
+                # Check if record exists
+                cursor = conn.execute(
+                    """
+                    SELECT COUNT(*) FROM team_game_other_stats
+                    WHERE game_id = ? AND team_id = ?
+                    """,
+                    (stats_record.game_id, stats_record.team_id),
+                )
+                exists = cursor.fetchone()[0] > 0
+
+                if exists:
+                    # Update existing record
+                    self._update_other_stats(stats_record, conn)
+                    rows_affected += 1
+                else:
+                    # Insert new record
+                    self._insert_other_stats(stats_record, conn)
+                    rows_affected += 1
+
+                # Log to ingestion_audit
+                conn.execute(
+                    """
+                    INSERT INTO ingestion_audit
+                    (entity_type, entity_id, status, source, metadata, ingested_at)
+                    VALUES (?, ?, 'SUCCESS', 'nba_stats_api', ?, datetime('now'))
+                    """,
+                    (
+                        self.entity_type,
+                        f"{stats_record.game_id}_{stats_record.team_id}",
+                        f"game: {stats_record.game_id}",
+                    ),
+                )
+
+            conn.execute("COMMIT")
+
+        except sqlite3.IntegrityError as exc:
+            conn.execute("ROLLBACK")
+            self.logger.warning(
+                "Integrity error during other stats upsert",
+                rows_before_error=rows_affected,
+                error=str(exc),
             )
-            exists = cursor.fetchone()[0] > 0
-
-            if exists:
-                # Update existing record
-                self._update_other_stats(stats_record, conn)
-                rows_affected += 1
-            else:
-                # Insert new record
-                self._insert_other_stats(stats_record, conn)
-                rows_affected += 1
-
-            # Log to ingestion_audit
-            conn.execute(
-                """
-                INSERT INTO ingestion_audit
-                (entity_type, entity_id, status, source, metadata, ingested_at)
-                VALUES (?, ?, 'SUCCESS', 'nba_stats_api', ?, datetime('now'))
-                """,
-                (
-                    self.entity_type,
-                    f"{stats_record.game_id}_{stats_record.team_id}",
-                    f"game: {stats_record.game_id}",
-                ),
+            raise
+        except sqlite3.OperationalError as exc:
+            conn.execute("ROLLBACK")
+            self.logger.error(
+                "Operational error during other stats upsert",
+                rows_before_error=rows_affected,
+                error=str(exc),
             )
+            raise
 
         return rows_affected
 

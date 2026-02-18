@@ -77,7 +77,7 @@ select = [
     "UP",     # pyupgrade (modernize syntax)
     "B",      # flake8-bugbear (bug detection)
     "C4",     # flake8-comprehensions
-    "TCH",    # flake8-type-checking
+    "TC",     # flake8-type-checking
     "PTH",    # flake8-use-pathlib
     "ERA",    # eradicate (commented code)
     "PL",     # pylint

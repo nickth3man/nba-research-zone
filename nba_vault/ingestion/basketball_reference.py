@@ -1,6 +1,6 @@
 """Basketball Reference client wrapper for data ingestion."""
 
-from typing import Any
+from typing import Any, cast
 
 import structlog
 
@@ -43,10 +43,18 @@ class BasketballReferenceClient:
 
         Raises:
             ImportError: If basketball_reference_web_scraper is not installed.
+            ValueError: If season_end_year is out of valid range.
             Exception: If data retrieval fails after retries.
         """
+        if season_end_year is not None and (season_end_year < 1947 or season_end_year > 2100):
+            raise ValueError(
+                f"season_end_year must be between 1947 and 2100, got {season_end_year}"
+            )
+
         try:
-            import basketball_reference_web_scraper as br_scraper  # noqa: PLC0415
+            import basketball_reference_web_scraper as _br_scraper  # noqa: PLC0415
+
+            br_scraper: Any = cast("Any", _br_scraper)
         except ImportError as e:
             self.logger.error("basketball_reference_web_scraper not installed")
             raise ImportError(
@@ -74,55 +82,70 @@ class BasketballReferenceClient:
                 self.logger.info("Fetching players for season", season=season_end_year)
                 players_data = br_scraper.players_season_totals(season_end_year)
 
+            if not players_data:
+                self.logger.warning(
+                    "Basketball Reference returned empty player list",
+                    season=season_end_year,
+                )
+                return []
+
             # Convert to dict format for serialization
             players_list = []
             for player_dict in players_data:
-                # Convert named tuple/dataclass to dict
-                player_data = {
-                    "slug": getattr(player_dict, "slug", ""),
-                    "name": getattr(player_dict, "name", ""),
-                    "position": getattr(player_dict, "position", ""),
-                    "height": getattr(player_dict, "height", ""),
-                    "weight": getattr(player_dict, "weight", ""),
-                    "team_abbreviation": getattr(player_dict, "team_abbreviation", ""),
-                    "games_played": getattr(player_dict, "games_played", 0),
-                    "games_started": getattr(player_dict, "games_started", 0),
-                    "minutes_played": getattr(player_dict, "minutes_played", 0.0),
-                    "field_goals": getattr(player_dict, "field_goals", 0),
-                    "field_goal_attempts": getattr(player_dict, "field_goal_attempts", 0),
-                    "field_goal_percentage": getattr(player_dict, "field_goal_percentage", 0.0),
-                    "three_point_field_goals": getattr(player_dict, "three_point_field_goals", 0),
-                    "three_point_field_goal_attempts": getattr(
-                        player_dict, "three_point_field_goal_attempts", 0
-                    ),
-                    "three_point_field_goal_percentage": getattr(
-                        player_dict, "three_point_field_goal_percentage", 0.0
-                    ),
-                    "two_point_field_goals": getattr(player_dict, "two_point_field_goals", 0),
-                    "two_point_field_goal_attempts": getattr(
-                        player_dict, "two_point_field_goal_attempts", 0
-                    ),
-                    "two_point_field_goal_percentage": getattr(
-                        player_dict, "two_point_field_goal_percentage", 0.0
-                    ),
-                    "effective_field_goal_percentage": getattr(
-                        player_dict, "effective_field_goal_percentage", 0.0
-                    ),
-                    "free_throws": getattr(player_dict, "free_throws", 0),
-                    "free_throw_attempts": getattr(player_dict, "free_throw_attempts", 0),
-                    "free_throw_percentage": getattr(player_dict, "free_throw_percentage", 0.0),
-                    "offensive_rebounds": getattr(player_dict, "offensive_rebounds", 0),
-                    "defensive_rebounds": getattr(player_dict, "defensive_rebounds", 0),
-                    "rebounds": getattr(player_dict, "rebounds", 0),
-                    "assists": getattr(player_dict, "assists", 0),
-                    "steals": getattr(player_dict, "steals", 0),
-                    "blocks": getattr(player_dict, "blocks", 0),
-                    "turnovers": getattr(player_dict, "turnovers", 0),
-                    "personal_fouls": getattr(player_dict, "personal_fouls", 0),
-                    "points": getattr(player_dict, "points", 0),
-                    "player_advanced_stats": getattr(player_dict, "player_advanced_stats", {}),
-                }
-                players_list.append(player_data)
+                try:
+                    player_data = {
+                        "slug": getattr(player_dict, "slug", ""),
+                        "name": getattr(player_dict, "name", ""),
+                        "position": getattr(player_dict, "position", ""),
+                        "height": getattr(player_dict, "height", ""),
+                        "weight": getattr(player_dict, "weight", ""),
+                        "team_abbreviation": getattr(player_dict, "team_abbreviation", ""),
+                        "games_played": getattr(player_dict, "games_played", 0),
+                        "games_started": getattr(player_dict, "games_started", 0),
+                        "minutes_played": getattr(player_dict, "minutes_played", 0.0),
+                        "field_goals": getattr(player_dict, "field_goals", 0),
+                        "field_goal_attempts": getattr(player_dict, "field_goal_attempts", 0),
+                        "field_goal_percentage": getattr(player_dict, "field_goal_percentage", 0.0),
+                        "three_point_field_goals": getattr(
+                            player_dict, "three_point_field_goals", 0
+                        ),
+                        "three_point_field_goal_attempts": getattr(
+                            player_dict, "three_point_field_goal_attempts", 0
+                        ),
+                        "three_point_field_goal_percentage": getattr(
+                            player_dict, "three_point_field_goal_percentage", 0.0
+                        ),
+                        "two_point_field_goals": getattr(player_dict, "two_point_field_goals", 0),
+                        "two_point_field_goal_attempts": getattr(
+                            player_dict, "two_point_field_goal_attempts", 0
+                        ),
+                        "two_point_field_goal_percentage": getattr(
+                            player_dict, "two_point_field_goal_percentage", 0.0
+                        ),
+                        "effective_field_goal_percentage": getattr(
+                            player_dict, "effective_field_goal_percentage", 0.0
+                        ),
+                        "free_throws": getattr(player_dict, "free_throws", 0),
+                        "free_throw_attempts": getattr(player_dict, "free_throw_attempts", 0),
+                        "free_throw_percentage": getattr(player_dict, "free_throw_percentage", 0.0),
+                        "offensive_rebounds": getattr(player_dict, "offensive_rebounds", 0),
+                        "defensive_rebounds": getattr(player_dict, "defensive_rebounds", 0),
+                        "rebounds": getattr(player_dict, "rebounds", 0),
+                        "assists": getattr(player_dict, "assists", 0),
+                        "steals": getattr(player_dict, "steals", 0),
+                        "blocks": getattr(player_dict, "blocks", 0),
+                        "turnovers": getattr(player_dict, "turnovers", 0),
+                        "personal_fouls": getattr(player_dict, "personal_fouls", 0),
+                        "points": getattr(player_dict, "points", 0),
+                        "player_advanced_stats": getattr(player_dict, "player_advanced_stats", {}),
+                    }
+                    players_list.append(player_data)
+                except AttributeError as attr_err:
+                    self.logger.warning(
+                        "Skipping player: unexpected data structure",
+                        error=str(attr_err),
+                    )
+                    continue
 
             # Cache the results
             self.cache.set(cache_key, players_list)
@@ -131,7 +154,7 @@ class BasketballReferenceClient:
             return players_list
 
         except Exception as e:
-            self.logger.error("Failed to fetch players", error=str(e))
+            self.logger.error("Failed to fetch players", season=season_end_year, error=str(e))
             raise
 
     def get_player_info(self, slug: str) -> dict[str, Any]:
@@ -149,7 +172,9 @@ class BasketballReferenceClient:
             Exception: If data retrieval fails after retries.
         """
         try:
-            import basketball_reference_web_scraper as br_scraper  # noqa: PLC0415
+            import basketball_reference_web_scraper as _br_scraper2  # noqa: PLC0415
+
+            br_scraper: Any = cast("Any", _br_scraper2)
         except ImportError as e:
             self.logger.error("basketball_reference_web_scraper not installed")
             raise ImportError(
