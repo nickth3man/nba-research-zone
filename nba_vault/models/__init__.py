@@ -8,6 +8,19 @@ from nba_vault.models.player import Player, PlayerCreate
 from nba_vault.models.coach import Coach, CoachCreate
 from nba_vault.models.game import Game, GameCreate
 from nba_vault.models.official import Official, OfficialCreate
+from nba_vault.models.advanced_stats import (
+    TeamGameOtherStatsCreate,
+    PlayerGameTrackingCreate,
+    LineupCreate,
+    LineupGameLogCreate,
+    PossessionCreate,
+    InjuryCreate,
+    PlayerContractCreate,
+    DraftCombineCreate,
+    PlayerGameMiscStatsCreate,
+    PlayerSeasonMetadataCreate,
+    TeamSeasonAdvancedCreate,
+)
 
 __all__ = [
     "League",
@@ -26,4 +39,15 @@ __all__ = [
     "GameCreate",
     "Official",
     "OfficialCreate",
+    "TeamGameOtherStatsCreate",
+    "PlayerGameTrackingCreate",
+    "LineupCreate",
+    "LineupGameLogCreate",
+    "PossessionCreate",
+    "InjuryCreate",
+    "PlayerContractCreate",
+    "DraftCombineCreate",
+    "PlayerGameMiscStatsCreate",
+    "PlayerSeasonMetadataCreate",
+    "TeamSeasonAdvancedCreate",
 ]

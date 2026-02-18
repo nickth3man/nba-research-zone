@@ -222,6 +222,436 @@ def ingest_players(
 
 
 @app.command()
+def ingest_tracking(
+    player_id: int = typer.Option(
+        None,
+        "--player-id",
+        "-p",
+        help="NBA.com player ID",
+    ),
+    team_id: int = typer.Option(
+        None,
+        "--team-id",
+        "-t",
+        help="NBA.com team ID (fetch all players on team)",
+    ),
+    season: str = typer.Option(
+        "2023-24",
+        "--season",
+        "-s",
+        help="Season in format YYYY-YY (e.g., 2023-24)",
+    ),
+    season_type: str = typer.Option(
+        "Regular Season",
+        "--season-type",
+        help="Season type: Regular Season, Playoffs, or Pre Season",
+    ),
+) -> None:
+    """
+    Ingest player tracking data from NBA.com Stats API.
+
+    Tracking data includes speed, distance, touches, drives, and other movement metrics.
+    Available from 2013-14 season onwards.
+
+    Use --player-id for a specific player or --team-id for all players on a team.
+    """
+    from nba_vault.ingestion import create_ingestor
+
+    conn = get_db_connection()
+
+    try:
+        # Create ingestor
+        ingestor = create_ingestor("player_tracking")
+
+        if ingestor is None:
+            typer.echo("✗ Player tracking ingestor not found", err=True)
+            raise typer.Exit(code=1)
+
+        # Determine what to ingest
+        if player_id:
+            typer.echo(f"Ingesting tracking data for player {player_id}...")
+            entity_id = str(player_id)
+        elif team_id:
+            typer.echo(f"Ingesting tracking data for team {team_id}...")
+            entity_id = f"team:{team_id}"
+        else:
+            typer.echo("✗ Must specify --player-id or --team-id", err=True)
+            raise typer.Exit(code=1)
+
+        # Perform ingestion
+        result = ingestor.ingest(entity_id, conn, season=season, season_type=season_type)
+
+        # Check result
+        if result["status"] == "SUCCESS":
+            typer.echo(f"✓ Successfully ingested {result['rows_affected']} tracking record(s)")
+        else:
+            typer.echo(
+                f"✗ Ingestion failed: {result.get('error_message', 'Unknown error')}",
+                err=True,
+            )
+            raise typer.Exit(code=1)
+
+    except Exception as e:
+        logger.error("Tracking ingestion failed", error=str(e))
+        typer.echo(f"✗ Tracking ingestion failed: {e}", err=True)
+        raise typer.Exit(code=1)
+    finally:
+        conn.close()
+
+
+@app.command()
+def ingest_lineups(
+    team_id: int = typer.Option(
+        None,
+        "--team-id",
+        "-t",
+        help="NBA.com team ID",
+    ),
+    scope: str = typer.Option(
+        "league",
+        "--scope",
+        help="Scope: league, team, or game:<game_id>",
+    ),
+    season: str = typer.Option(
+        "2023-24",
+        "--season",
+        "-s",
+        help="Season in format YYYY-YY (e.g., 2023-24)",
+    ),
+    season_type: str = typer.Option(
+        "Regular Season",
+        "--season-type",
+        help="Season type: Regular Season, Playoffs, or Pre Season",
+    ),
+) -> None:
+    """
+    Ingest lineup data from NBA.com Stats API.
+
+    Lineup data includes player combinations, minutes played, and performance metrics.
+    Use --scope=league for all teams, --scope=team:<team_id> for specific team.
+    """
+    from nba_vault.ingestion import create_ingestor
+
+    conn = get_db_connection()
+
+    try:
+        # Create ingestor
+        ingestor = create_ingestor("lineups")
+
+        if ingestor is None:
+            typer.echo("✗ Lineups ingestor not found", err=True)
+            raise typer.Exit(code=1)
+
+        # Determine entity_id from scope
+        if scope == "league":
+            entity_id = "league"
+        elif scope.startswith("team:"):
+            entity_id = scope
+        elif scope.startswith("game:"):
+            entity_id = scope
+        elif team_id:
+            entity_id = str(team_id)
+        else:
+            entity_id = "league"
+
+        typer.echo(f"Ingesting lineup data for {entity_id}...")
+
+        # Perform ingestion
+        result = ingestor.ingest(entity_id, conn, season=season, season_type=season_type)
+
+        # Check result
+        if result["status"] == "SUCCESS":
+            typer.echo(f"✓ Successfully ingested {result['rows_affected']} lineup(s)")
+        else:
+            typer.echo(
+                f"✗ Ingestion failed: {result.get('error_message', 'Unknown error')}",
+                err=True,
+            )
+            raise typer.Exit(code=1)
+
+    except Exception as e:
+        logger.error("Lineup ingestion failed", error=str(e))
+        typer.echo(f"✗ Lineup ingestion failed: {e}", err=True)
+        raise typer.Exit(code=1)
+    finally:
+        conn.close()
+
+
+@app.command()
+def ingest_team_other_stats(
+    game_id: str = typer.Option(
+        None,
+        "--game-id",
+        "-g",
+        help="NBA.com 10-character game ID",
+    ),
+    team_id: int = typer.Option(
+        None,
+        "--team-id",
+        "-t",
+        help="NBA.com team ID (format: team:<id>:<season>)",
+    ),
+    season: str = typer.Option(
+        "2023-24",
+        "--season",
+        "-s",
+        help="Season in format YYYY-YY (e.g., 2023-24)",
+    ),
+) -> None:
+    """
+    Ingest team game other stats from NBA.com Stats API.
+
+    Other stats include paint points, fast break points, second chance points, etc.
+    Use --game-id for a specific game or --team-id for all games in a season.
+    """
+    from nba_vault.ingestion import create_ingestor
+
+    conn = get_db_connection()
+
+    try:
+        # Create ingestor
+        ingestor = create_ingestor("team_other_stats")
+
+        if ingestor is None:
+            typer.echo("✗ Team other stats ingestor not found", err=True)
+            raise typer.Exit(code=1)
+
+        # Determine what to ingest
+        if game_id:
+            typer.echo(f"Ingesting other stats for game {game_id}...")
+            entity_id = game_id
+        elif team_id:
+            typer.echo(f"Ingesting other stats for team {team_id}...")
+            entity_id = f"team:{team_id}:{season}"
+        else:
+            typer.echo("✗ Must specify --game-id or --team-id", err=True)
+            raise typer.Exit(code=1)
+
+        # Perform ingestion
+        result = ingestor.ingest(entity_id, conn, season=season)
+
+        # Check result
+        if result["status"] == "SUCCESS":
+            typer.echo(f"✓ Successfully ingested {result['rows_affected']} other stats record(s)")
+        else:
+            typer.echo(
+                f"✗ Ingestion failed: {result.get('error_message', 'Unknown error')}",
+                err=True,
+            )
+            raise typer.Exit(code=1)
+
+    except Exception as e:
+        logger.error("Team other stats ingestion failed", error=str(e))
+        typer.echo(f"✗ Team other stats ingestion failed: {e}", err=True)
+        raise typer.Exit(code=1)
+    finally:
+        conn.close()
+
+
+@app.command()
+def ingest_team_advanced_stats(
+    team_id: int = typer.Option(
+        None,
+        "--team-id",
+        "-t",
+        help="NBA.com team ID",
+    ),
+    scope: str = typer.Option(
+        "league",
+        "--scope",
+        help="Scope: league or team",
+    ),
+    season: str = typer.Option(
+        "2023-24",
+        "--season",
+        "-s",
+        help="Season in format YYYY-YY (e.g., 2023-24)",
+    ),
+    season_type: str = typer.Option(
+        "Regular Season",
+        "--season-type",
+        help="Season type: Regular Season, Playoffs, or Pre Season",
+    ),
+    measure_type: str = typer.Option(
+        "Advanced",
+        "--measure-type",
+        help="Measure type: Base, Advanced, or Four Factors",
+    ),
+) -> None:
+    """
+    Ingest advanced team stats from NBA.com Stats API.
+
+    Advanced stats include offensive/defensive ratings, pace, four factors, etc.
+    Use --scope=league for all teams or --scope=team for specific team.
+    """
+    from nba_vault.ingestion import create_ingestor
+
+    conn = get_db_connection()
+
+    try:
+        # Create ingestor
+        ingestor = create_ingestor("team_advanced_stats")
+
+        if ingestor is None:
+            typer.echo("✗ Team advanced stats ingestor not found", err=True)
+            raise typer.Exit(code=1)
+
+        # Determine entity_id from scope
+        if scope == "league":
+            entity_id = "league"
+        elif team_id:
+            entity_id = str(team_id)
+        else:
+            entity_id = "league"
+
+        typer.echo(f"Ingesting advanced stats for {entity_id}...")
+
+        # Perform ingestion
+        result = ingestor.ingest(
+            entity_id, conn, season=season, season_type=season_type, measure_type=measure_type
+        )
+
+        # Check result
+        if result["status"] == "SUCCESS":
+            typer.echo(f"✓ Successfully ingested {result['rows_affected']} advanced stats record(s)")
+        else:
+            typer.echo(
+                f"✗ Ingestion failed: {result.get('error_message', 'Unknown error')}",
+                err=True,
+            )
+            raise typer.Exit(code=1)
+
+    except Exception as e:
+        logger.error("Team advanced stats ingestion failed", error=str(e))
+        typer.echo(f"✗ Team advanced stats ingestion failed: {e}", err=True)
+        raise typer.Exit(code=1)
+    finally:
+        conn.close()
+
+
+@app.command()
+def ingest_injuries(
+    team: str = typer.Option(
+        None,
+        "--team",
+        "-t",
+        help="Team abbreviation (e.g., LAL)",
+    ),
+    source: str = typer.Option(
+        "espn",
+        "--source",
+        help="Data source: espn, rotowire, or nba",
+    ),
+) -> None:
+    """
+    Ingest injury data from various sources.
+
+    Fetches current injury reports from ESPN, Rotowire, or NBA.com.
+    Use --team to filter by specific team.
+    """
+    from nba_vault.ingestion import create_ingestor
+
+    conn = get_db_connection()
+
+    try:
+        # Create ingestor
+        ingestor = create_ingestor("injuries")
+
+        if ingestor is None:
+            typer.echo("✗ Injury ingestor not found", err=True)
+            raise typer.Exit(code=1)
+
+        # Determine entity_id
+        if team:
+            entity_id = f"team:{team}"
+            typer.echo(f"Ingesting injuries for {team} from {source}...")
+        else:
+            entity_id = "all"
+            typer.echo(f"Ingesting all injuries from {source}...")
+
+        # Perform ingestion
+        result = ingestor.ingest(entity_id, conn, source=source)
+
+        # Check result
+        if result["status"] == "SUCCESS":
+            typer.echo(f"✓ Successfully ingested {result['rows_affected']} injury record(s)")
+        else:
+            typer.echo(
+                f"✗ Ingestion failed: {result.get('error_message', 'Unknown error')}",
+                err=True,
+            )
+            raise typer.Exit(code=1)
+
+    except Exception as e:
+        logger.error("Injury ingestion failed", error=str(e))
+        typer.echo(f"✗ Injury ingestion failed: {e}", err=True)
+        raise typer.Exit(code=1)
+    finally:
+        conn.close()
+
+
+@app.command()
+def ingest_contracts(
+    team: str = typer.Option(
+        None,
+        "--team",
+        "-t",
+        help="Team identifier (name or abbreviation)",
+    ),
+    source: str = typer.Option(
+        "realgm",
+        "--source",
+        help="Data source: realgm or spotrac",
+    ),
+) -> None:
+    """
+    Ingest player contract data from various sources.
+
+    Fetches contract information including salary, contract type, and options.
+    Use --team to filter by specific team.
+    """
+    from nba_vault.ingestion import create_ingestor
+
+    conn = get_db_connection()
+
+    try:
+        # Create ingestor
+        ingestor = create_ingestor("contracts")
+
+        if ingestor is None:
+            typer.echo("✗ Contract ingestor not found", err=True)
+            raise typer.Exit(code=1)
+
+        # Determine entity_id
+        if team:
+            entity_id = f"team:{team}"
+            typer.echo(f"Ingesting contracts for {team} from {source}...")
+        else:
+            entity_id = "all"
+            typer.echo(f"Ingesting all contracts from {source}...")
+
+        # Perform ingestion
+        result = ingestor.ingest(entity_id, conn, source=source)
+
+        # Check result
+        if result["status"] == "SUCCESS":
+            typer.echo(f"✓ Successfully ingested {result['rows_affected']} contract record(s)")
+        else:
+            typer.echo(
+                f"✗ Ingestion failed: {result.get('error_message', 'Unknown error')}",
+                err=True,
+            )
+            raise typer.Exit(code=1)
+
+    except Exception as e:
+        logger.error("Contract ingestion failed", error=str(e))
+        typer.echo(f"✗ Contract ingestion failed: {e}", err=True)
+        raise typer.Exit(code=1)
+    finally:
+        conn.close()
+
+
+@app.command()
 def validate(
     checks: list[str] = typer.Option(
         None,
