@@ -132,10 +132,12 @@ class PlayersIngestor(BaseIngestor):
                     self._update_player(player_create, conn)
                     rows_affected += 1
                 else:
-                    # Insert new player (generate player_id from max)
-                    cursor = conn.execute("SELECT COALESCE(MAX(player_id), 0) FROM player")
-                    max_id = cursor.fetchone()[0]
-                    player_create.player_id = max_id + 1
+                    # Insert new player
+                    # Use nba_person_id as player_id if available, else auto-increment
+                    if player_create.player_id is None:
+                        cursor = conn.execute("SELECT COALESCE(MAX(player_id), 0) FROM player")
+                        max_id = cursor.fetchone()[0]
+                        player_create.player_id = max_id + 1
 
                     self._insert_player(player_create, conn)
                     rows_affected += 1
@@ -144,13 +146,12 @@ class PlayersIngestor(BaseIngestor):
                 conn.execute(
                     """
                     INSERT INTO ingestion_audit
-                    (entity_type, entity_id, status, source, metadata, ingested_at)
-                    VALUES (?, ?, 'SUCCESS', 'basketball_reference', ?, datetime('now'))
+                    (entity_type, entity_id, status, source, ingest_ts, row_count)
+                    VALUES (?, ?, 'SUCCESS', 'nba_api', datetime('now'), 1)
                     """,
                     (
                         self.entity_type,
                         player_create.bbref_id,
-                        f"season: {br_player.slug}",
                     ),
                 )
 

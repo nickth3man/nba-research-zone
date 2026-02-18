@@ -99,6 +99,7 @@ class TeamAdvancedStatsIngestor(BaseIngestor):
 
             data = self.nba_client.get_team_advanced_stats(
                 season=season,
+                team_id=team_id,
                 season_type=season_type,
                 measure_type=measure_type,
                 **kwargs,
@@ -259,13 +260,12 @@ class TeamAdvancedStatsIngestor(BaseIngestor):
                 conn.execute(
                     """
                     INSERT INTO ingestion_audit
-                    (entity_type, entity_id, status, source, metadata, ingested_at)
-                    VALUES (?, ?, 'SUCCESS', 'nba_stats_api', ?, datetime('now'))
+                    (entity_type, entity_id, status, source, ingest_ts, row_count)
+                    VALUES (?, ?, 'SUCCESS', 'nba_stats_api', datetime('now'), 1)
                     """,
                     (
                         self.entity_type,
                         f"{stats_record.team_id}_{stats_record.season_id}",
-                        f"season: {stats_record.season_id}, team: {stats_record.team_id}",
                     ),
                 )
 

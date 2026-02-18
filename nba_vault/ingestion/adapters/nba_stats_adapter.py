@@ -217,8 +217,8 @@ class NBAStatsAdapter(ABC):
     @abstractmethod
     def get_team_advanced_stats(
         self,
-        team_id: int,
         season: str,
+        team_id: int = 0,
         season_type: str = "Regular Season",
         measure_type: str = "Advanced",
         per_mode: str = "PerGame",
@@ -291,6 +291,88 @@ class NBAStatsAdapter(ABC):
         """
         pass
 
+    @abstractmethod
+    def get_league_game_log(
+        self,
+        season: str,
+        season_type: str = "Regular Season",
+        league_id: str = "00",
+        direction: str = "DESC",
+        player_or_team: str = "T",
+    ) -> dict[str, Any]:
+        """Get full league game log for a season (LeagueGameLog endpoint)."""
+        pass
+
+    @abstractmethod
+    def get_box_score_traditional(self, game_id: str) -> dict[str, Any]:
+        """Get traditional box score (player + team rows) for a game."""
+        pass
+
+    @abstractmethod
+    def get_box_score_advanced(self, game_id: str) -> dict[str, Any]:
+        """Get advanced box score for a game."""
+        pass
+
+    @abstractmethod
+    def get_box_score_hustle(self, game_id: str) -> dict[str, Any]:
+        """Get hustle box score for a game (available 2015-16+)."""
+        pass
+
+    @abstractmethod
+    def get_play_by_play(self, game_id: str, end_period: int = 10) -> dict[str, Any]:
+        """Get play-by-play events for a game (available 1996-97+)."""
+        pass
+
+    @abstractmethod
+    def get_shot_chart(
+        self,
+        game_id: str,
+        player_id: int = 0,
+        team_id: int = 0,
+        season: str = "",
+    ) -> dict[str, Any]:
+        """Get shot chart data for a game or player/season (available 1996-97+)."""
+        pass
+
+    @abstractmethod
+    def get_common_player_info(self, player_id: int) -> dict[str, Any]:
+        """Get biographical and career-info for a single player."""
+        pass
+
+    @abstractmethod
+    def get_common_team_roster(self, team_id: int, season: str) -> dict[str, Any]:
+        """Get roster + coach data for a team/season."""
+        pass
+
+    @abstractmethod
+    def get_player_awards(self, player_id: int) -> dict[str, Any]:
+        """Get awards list for a player."""
+        pass
+
+    @abstractmethod
+    def get_player_career_stats(
+        self,
+        player_id: int,
+        per_mode: str = "PerGame",
+    ) -> dict[str, Any]:
+        """Get career per-season stats for a player."""
+        pass
+
+    @abstractmethod
+    def get_draft_history(self, league_id: str = "00") -> dict[str, Any]:
+        """Get full draft history for the league."""
+        pass
+
+    @abstractmethod
+    def get_draft_combine_anthro(self, season_year: str) -> dict[str, Any]:
+        """Get draft combine anthropometric measurements for a year."""
+        pass
+
+    @abstractmethod
+    def get_draft_combine_drills(self, season_year: str) -> dict[str, Any]:
+        """Get draft combine drill results for a year."""
+        pass
+
 
 class NbaApiAdapter(NBAStatsAdapter):
     """
@@ -359,6 +441,44 @@ class NbaApiAdapter(NBAStatsAdapter):
                 or _load_endpoint(
                     "nba_api.stats.endpoints.teamyearoveryearstats", "TeamYearOverYearStats"
                 ),
+                # New endpoints
+                "leaguegamelog": getattr(nba_endpoints, "LeagueGameLog", None)
+                or _load_endpoint("nba_api.stats.endpoints.leaguegamelog", "LeagueGameLog"),
+                "boxscoretraditionalv2": getattr(nba_endpoints, "BoxScoreTraditionalV2", None)
+                or _load_endpoint(
+                    "nba_api.stats.endpoints.boxscoretraditionalv2", "BoxScoreTraditionalV2"
+                ),
+                "boxscoreadvancedv2": getattr(nba_endpoints, "BoxScoreAdvancedV2", None)
+                or _load_endpoint(
+                    "nba_api.stats.endpoints.boxscoreadvancedv2", "BoxScoreAdvancedV2"
+                ),
+                "boxscorehustlev2": getattr(nba_endpoints, "BoxScoreHustleV2", None)
+                or _load_endpoint("nba_api.stats.endpoints.boxscorehustlev2", "BoxScoreHustleV2"),
+                "playbyplayv2": getattr(nba_endpoints, "PlayByPlayV2", None)
+                or _load_endpoint("nba_api.stats.endpoints.playbyplayv2", "PlayByPlayV2"),
+                "shotchartdetail": getattr(nba_endpoints, "ShotChartDetail", None)
+                or _load_endpoint("nba_api.stats.endpoints.shotchartdetail", "ShotChartDetail"),
+                "commonplayerinfo": getattr(nba_endpoints, "CommonPlayerInfo", None)
+                or _load_endpoint("nba_api.stats.endpoints.commonplayerinfo", "CommonPlayerInfo"),
+                "commonteamroster": getattr(nba_endpoints, "CommonTeamRoster", None)
+                or _load_endpoint("nba_api.stats.endpoints.commonteamroster", "CommonTeamRoster"),
+                "playerawards": getattr(nba_endpoints, "PlayerAwards", None)
+                or _load_endpoint("nba_api.stats.endpoints.playerawards", "PlayerAwards"),
+                "playercareerstats": getattr(nba_endpoints, "PlayerCareerStats", None)
+                or _load_endpoint("nba_api.stats.endpoints.playercareerstats", "PlayerCareerStats"),
+                "drafthistory": getattr(nba_endpoints, "DraftHistory", None)
+                or _load_endpoint("nba_api.stats.endpoints.drafthistory", "DraftHistory"),
+                "draftcombinenonstatmeasures": getattr(
+                    nba_endpoints, "DraftCombineNonStatMeasures", None
+                )
+                or _load_endpoint(
+                    "nba_api.stats.endpoints.draftcombinenonstatmeasures",
+                    "DraftCombineNonStatMeasures",
+                ),
+                "draftcombinedrillresults": getattr(nba_endpoints, "DraftCombineDrillResults", None)
+                or _load_endpoint(
+                    "nba_api.stats.endpoints.draftcombinedrillresults", "DraftCombineDrillResults"
+                ),
             }
             self.static: dict[str, Any] = {
                 "teams": getattr(nba_static, "teams", None),
@@ -399,14 +519,30 @@ class NbaApiAdapter(NBAStatsAdapter):
             # Make request with timeout
             response = endpoint_class(**params, timeout=self.timeout)
 
-            # Extract data from response
-            # nba_api returns data in data_sets dict
+            # Extract data from response using get_normalized_dict() which
+            # returns {dataset_name: [row_dict, ...]} regardless of nba_api version.
             result: dict[str, Any] = {}
-            if hasattr(response, "data_sets"):
-                for dataset_name, dataset in response.data_sets.items():
-                    result[dataset_name] = dataset.get_dict()
-            elif hasattr(response, "dict"):
-                result = response.dict()
+            if hasattr(response, "get_normalized_dict"):
+                normalized = response.get_normalized_dict()
+                # get_normalized_dict returns {name: [row, ...]} where each row is a dict
+                # Wrap into the {name: {headers: [...], data: [...]}} format expected downstream
+                for dataset_name, rows in normalized.items():
+                    if rows:
+                        headers = list(rows[0].keys())
+                        data = [list(row.values()) for row in rows]
+                    else:
+                        headers = []
+                        data = []
+                    result[dataset_name] = {"headers": headers, "data": data}
+            elif hasattr(response, "data_sets"):
+                ds = response.data_sets
+                if isinstance(ds, dict):
+                    for dataset_name, dataset in ds.items():
+                        result[dataset_name] = dataset.get_dict()
+                elif isinstance(ds, list):
+                    for dataset in ds:
+                        if hasattr(dataset, "name") and hasattr(dataset, "get_dict"):
+                            result[dataset.name] = dataset.get_dict()
 
             return result
 
@@ -564,29 +700,31 @@ class NbaApiAdapter(NBAStatsAdapter):
         last_n_games: int = 0,
         group_quantity: int = 5,
     ) -> dict[str, Any]:
-        """Get all league lineups using nba_api."""
+        """Get all league lineups using nba_api.
+
+        Parameter names are mapped to the nba_api-specific names for LeagueDashLineups.
+        """
         return self._call_endpoint(
             "leaguedashlineups",
-            league_id="00",  # NBA
             season=season,
-            season_type=season_type,
-            measure_type=measure_type,
-            per_mode=per_mode,
+            season_type_all_star=season_type,
+            measure_type_detailed_defense=measure_type,
+            per_mode_detailed=per_mode,
             plus_minus=plus_minus,
             pace_adjust=pace_adjust,
             rank=rank,
-            outcome=outcome,
-            location=location,
+            outcome_nullable=outcome,
+            location_nullable=location,
             month=month,
-            season_segment=season_segment,
-            date_from=date_from,
-            date_to=date_to,
+            season_segment_nullable=season_segment,
+            date_from_nullable=date_from,
+            date_to_nullable=date_to,
             opponent_team_id=opponent_team_id,
-            vs_conference=vs_conference,
-            vs_division=vs_division,
-            game_segment=game_segment,
+            vs_conference_nullable=vs_conference,
+            vs_division_nullable=vs_division,
+            game_segment_nullable=game_segment,
             period=period,
-            shot_clock_range=shot_clock_range,
+            shot_clock_range_nullable=shot_clock_range,
             last_n_games=last_n_games,
             group_quantity=group_quantity,
         )
@@ -603,8 +741,8 @@ class NbaApiAdapter(NBAStatsAdapter):
 
     def get_team_advanced_stats(
         self,
-        team_id: int,
         season: str,
+        team_id: int = 0,
         season_type: str = "Regular Season",
         measure_type: str = "Advanced",
         per_mode: str = "PerGame",
@@ -625,29 +763,32 @@ class NbaApiAdapter(NBAStatsAdapter):
         shot_clock_range: str = "",
         last_n_games: int = 0,
     ) -> dict[str, Any]:
-        """Get team advanced stats using nba_api."""
+        """Get team advanced stats using nba_api.
+
+        Uses LeagueDashTeamStats which returns all teams.
+        Parameter names are mapped to the nba_api-specific names.
+        """
         return self._call_endpoint(
             "leaguedashteamstats",
-            league_id="00",  # NBA
             season=season,
-            season_type=season_type,
-            measure_type=measure_type,
-            per_mode=per_mode,
+            season_type_all_star=season_type,
+            measure_type_detailed_defense=measure_type,
+            per_mode_detailed=per_mode,
             plus_minus=plus_minus,
             pace_adjust=pace_adjust,
             rank=rank,
-            outcome=outcome,
-            location=location,
+            outcome_nullable=outcome,
+            location_nullable=location,
             month=month,
-            season_segment=season_segment,
-            date_from=date_from,
-            date_to=date_to,
+            season_segment_nullable=season_segment,
+            date_from_nullable=date_from,
+            date_to_nullable=date_to,
             opponent_team_id=opponent_team_id,
-            vs_conference=vs_conference,
-            vs_division=vs_division,
-            game_segment=game_segment,
+            vs_conference_nullable=vs_conference,
+            vs_division_nullable=vs_division,
+            game_segment_nullable=game_segment,
             period=period,
-            shot_clock_range=shot_clock_range,
+            shot_clock_range_nullable=shot_clock_range,
             last_n_games=last_n_games,
         )
 
@@ -674,3 +815,150 @@ class NbaApiAdapter(NBAStatsAdapter):
             # Silently fail - static data may not be available
             logger.debug("Failed to get player ID from static data", full_name=full_name)
         return None
+
+    def get_league_game_log(
+        self,
+        season: str,
+        season_type: str = "Regular Season",
+        league_id: str = "00",
+        direction: str = "DESC",
+        player_or_team: str = "T",
+    ) -> dict[str, Any]:
+        """Get full league game log for a season using LeagueGameLog endpoint."""
+        return self._call_endpoint(
+            "leaguegamelog",
+            season=season,
+            season_type_all_star=season_type,
+            league_id=league_id,
+            direction=direction,
+            player_or_team_abbreviation=player_or_team,
+            date_from_nullable="",
+            date_to_nullable="",
+            sorter="DATE",
+        )
+
+    def get_box_score_traditional(self, game_id: str) -> dict[str, Any]:
+        """Get traditional box score for a game using BoxScoreTraditionalV2."""
+        return self._call_endpoint(
+            "boxscoretraditionalv2",
+            game_id=game_id,
+            start_period=1,
+            end_period=10,
+            start_range=0,
+            end_range=28800,
+            range_type=0,
+        )
+
+    def get_box_score_advanced(self, game_id: str) -> dict[str, Any]:
+        """Get advanced box score for a game using BoxScoreAdvancedV2."""
+        return self._call_endpoint(
+            "boxscoreadvancedv2",
+            game_id=game_id,
+            start_period=1,
+            end_period=10,
+            start_range=0,
+            end_range=28800,
+            range_type=0,
+        )
+
+    def get_box_score_hustle(self, game_id: str) -> dict[str, Any]:
+        """Get hustle box score for a game using BoxScoreHustleV2 (2015-16+)."""
+        return self._call_endpoint(
+            "boxscorehustlev2",
+            game_id=game_id,
+        )
+
+    def get_play_by_play(self, game_id: str, end_period: int = 10) -> dict[str, Any]:
+        """Get play-by-play events for a game using PlayByPlayV2 (1996-97+)."""
+        return self._call_endpoint(
+            "playbyplayv2",
+            game_id=game_id,
+            start_period=1,
+            end_period=end_period,
+        )
+
+    def get_shot_chart(
+        self,
+        game_id: str,
+        player_id: int = 0,
+        team_id: int = 0,
+        season: str = "",
+    ) -> dict[str, Any]:
+        """Get shot chart data using ShotChartDetail (1996-97+)."""
+        return self._call_endpoint(
+            "shotchartdetail",
+            game_id=game_id,
+            player_id=player_id,
+            team_id=team_id,
+            season_nullable=season,
+            league_id="00",
+            season_type_all_star="Regular Season",
+            context_measure_simple="FGA",
+        )
+
+    def get_common_player_info(self, player_id: int) -> dict[str, Any]:
+        """Get biographical info for a player using CommonPlayerInfo."""
+        return self._call_endpoint(
+            "commonplayerinfo",
+            player_id=player_id,
+            league_id_nullable="",
+        )
+
+    def get_common_team_roster(self, team_id: int, season: str) -> dict[str, Any]:
+        """Get roster + coach list for a team/season using CommonTeamRoster."""
+        return self._call_endpoint(
+            "commonteamroster",
+            team_id=team_id,
+            season=season,
+            league_id_nullable="",
+        )
+
+    def get_player_awards(self, player_id: int) -> dict[str, Any]:
+        """Get player awards using PlayerAwards endpoint."""
+        return self._call_endpoint(
+            "playerawards",
+            player_id=player_id,
+        )
+
+    def get_player_career_stats(
+        self,
+        player_id: int,
+        per_mode: str = "PerGame",
+    ) -> dict[str, Any]:
+        """Get career per-season stats using PlayerCareerStats endpoint."""
+        return self._call_endpoint(
+            "playercareerstats",
+            player_id=player_id,
+            per_mode_simple=per_mode,
+            league_id_nullable="",
+        )
+
+    def get_draft_history(self, league_id: str = "00") -> dict[str, Any]:
+        """Get full draft history using DraftHistory endpoint."""
+        return self._call_endpoint(
+            "drafthistory",
+            league_id=league_id,
+            season_year_nullable="",
+            round_num_nullable="",
+            round_pick_nullable="",
+            overall_pick_nullable="",
+            team_id_nullable="",
+            player_id_nullable="",
+            top_x_nullable="",
+        )
+
+    def get_draft_combine_anthro(self, season_year: str) -> dict[str, Any]:
+        """Get draft combine anthropometric data using DraftCombineNonStatMeasures."""
+        return self._call_endpoint(
+            "draftcombinenonstatmeasures",
+            league_id="00",
+            season_year=season_year,
+        )
+
+    def get_draft_combine_drills(self, season_year: str) -> dict[str, Any]:
+        """Get draft combine drill results using DraftCombineDrillResults."""
+        return self._call_endpoint(
+            "draftcombinedrillresults",
+            league_id="00",
+            season_year=season_year,
+        )

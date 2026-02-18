@@ -167,15 +167,48 @@ if season_year < 2013:
 
 ### Available Ingestors
 
-The system includes 7 ingestors:
+The system includes **20 ingestors** across 8 domains. See `DATA_SOURCING.md` for the
+full source/era-gate reference.
 
+**Reference / Seed Data**
 - `players`: Basic player data from Basketball Reference (1946-present)
-- `player_tracking`: Movement metrics from NBA.com API (2013-14+)
-- `lineups`: Lineup combinations from NBA.com API
-- `team_other_stats`: Paint points, fast break, etc. from NBA.com
-- `team_advanced_stats`: Off/def rating, pace, four factors from NBA.com
-- `injuries`: Injury reports from ESPN/Rotowire (web scraping)
-- `contracts`: Contract data from RealGM/Spotrac (web scraping)
+- `franchises`: Franchise history from NBA.com (all eras)
+- `seasons`: Season metadata from NBA.com (all eras)
+- `player_bio`: Player biographical details from NBA.com (all eras)
+- `coaches`: Coaching staff from NBA.com `commonTeamRoster` (all eras)
+
+**Games & Officials**
+- `game_schedule`: Game schedule from NBA.com `leagueGameLog` (all eras)
+- `game_officials`: Game referees from NBA.com `boxScoreSummaryV2` (all eras)
+
+**Box Scores**
+- `box_scores_traditional`: Traditional box scores from NBA.com (1996-97+)
+- `box_scores_advanced`: Advanced box scores from NBA.com (1996-97+)
+- `box_scores_hustle`: Hustle-stats box scores from NBA.com (**2015-16+**)
+
+**Play-by-Play & Shot Charts**
+- `play_by_play`: Play-by-play event log from NBA.com (1996-97+)
+- `shot_chart`: Shot chart (FGA locations) from NBA.com (1996-97+)
+
+**Player Stats & Tracking**
+- `player_season_stats`: Per-season stats from NBA.com `playerCareerStats` (all eras)
+- `player_tracking`: Movement metrics from NBA.com `playerDashPtStats` (**2013-14+**)
+
+**Team Stats**
+- `lineups`: Lineup combinations from NBA.com (1996-97+)
+- `team_other_stats`: Paint points, fast break, etc. from NBA.com (1996-97+)
+- `team_advanced_stats`: Off/def rating, pace, four factors from NBA.com (1996-97+)
+
+**Draft**
+- `draft`: Draft history from NBA.com `draftHistory` (1947+)
+- `draft_combine`: Combine measurements + drills from NBA.com (**2000+**)
+
+**Awards & Injuries**
+- `awards`: Career awards (MVP, All-Star, All-NBA…) from NBA.com (all eras)
+- `injuries`: Current-season injury reports from ESPN/Rotowire (web scraping)
+
+**Intentionally excluded (stub)**
+- `contracts`: All pipeline methods raise `NotImplementedError` — salary data excluded per PRD §3
 
 ### Database Connections
 
@@ -196,8 +229,10 @@ Access settings via `get_settings()` from `nba_vault.utils.config`. Settings are
 - **Migrations**: `migrations/*.sql` - Database schema changes (SQLite dialect, yoyo-migrations)
 - **DuckDB Views**: `duckdb/views/v_*.sql` - Analytical views (DuckDB dialect, auto-loaded by builder)
 - **Models**: `nba_vault/models/*.py` - Pydantic validation models
+- **Entities models**: `nba_vault/models/entities.py` - All Pydantic v2 Create models
 - **Ingestors**: `nba_vault/ingestion/*.py` - Data ingestion implementations
 - **API Clients**: `nba_vault/ingestion/nba_stats_client.py`, `basketball_reference.py`
+- **Data sourcing reference**: `DATA_SOURCING.md` - All sources, era gates, CLI commands
 
 ### Configuration
 
@@ -215,6 +250,7 @@ Access settings via `get_settings()` from `nba_vault.utils.config`. Settings are
   - `admin.py` — `init`, `migrate`, `status`, `validate`
   - `ingestion.py` — `ingest-players`
   - `advanced_stats.py` — `ingest-tracking`, `ingest-lineups`, `ingest-team-*`
+  - `game_data.py` — `ingest-seasons`, `ingest-franchises`, `ingest-schedule`, `ingest-officials`, `ingest-box-scores`, `ingest-box-scores-advanced`, `ingest-box-scores-hustle`, `ingest-pbp`, `ingest-shot-charts`, `ingest-player-bio`, `ingest-coaches`, `ingest-draft`, `ingest-draft-combine`, `ingest-awards`, `ingest-season-stats`
   - `scrapers.py` — `ingest-injuries`, `ingest-contracts`
   - `export.py` — `export`
 - **Connection**: `nba_vault/schema/connection.py` - Database connection management
@@ -234,34 +270,75 @@ Always specify the correct dialect when running SQLFluff commands.
 
 ```bash
 # Ingest players from Basketball Reference
-nba-vault ingest-players --season-end-year 2024
-nba-vault ingest-players --player-id jamesle01
+nba-vault ingestion ingest-players --season-end-year 2024
+nba-vault ingestion ingest-players --player-id jamesle01
 ```
 
 ### Advanced Stats (NBA.com API)
 
 ```bash
 # Player tracking data (2013-14+)
-nba-vault ingest-tracking --player-id 2544 --season 2023-24
+nba-vault advanced-stats ingest-tracking --player-id 2544 --season 2023-24
 
 # Lineup combinations
-nba-vault ingest-lineups --scope league --season 2023-24
+nba-vault advanced-stats ingest-lineups --scope league --season 2023-24
 
 # Team other stats (paint points, fast break)
-nba-vault ingest-team-other-stats --game-id 0022300001
+nba-vault advanced-stats ingest-team-other-stats --game-id 0022300001
 
 # Advanced team stats (off/def rating, pace)
-nba-vault ingest-team-advanced-stats --scope league --season 2023-24
+nba-vault advanced-stats ingest-team-advanced-stats --scope league --season 2023-24
+```
+
+### Game Data (NBA.com API)
+
+```bash
+# Season metadata
+nba-vault game-data ingest-seasons --season 2023-24
+
+# Franchise history
+nba-vault game-data ingest-franchises
+
+# Game schedule
+nba-vault game-data ingest-schedule --season 2023-24
+
+# Officials for a game
+nba-vault game-data ingest-officials --game-id 0022300001
+
+# Box scores
+nba-vault game-data ingest-box-scores --game-id 0022300001
+nba-vault game-data ingest-box-scores-advanced --game-id 0022300001
+nba-vault game-data ingest-box-scores-hustle --game-id 0022300001   # 2015-16+
+
+# Play-by-play
+nba-vault game-data ingest-pbp --game-id 0022300001
+
+# Shot charts
+nba-vault game-data ingest-shot-charts --player-id 2544 --season 2023-24
+nba-vault game-data ingest-shot-charts --game-id 0022300001
+
+# Player bio + coaches
+nba-vault game-data ingest-player-bio --player-id 2544
+nba-vault game-data ingest-coaches --team-id 1610612747 --season 2023-24
+
+# Draft
+nba-vault game-data ingest-draft                  # all years
+nba-vault game-data ingest-draft --year 2024
+nba-vault game-data ingest-draft-combine --year 2024   # 2000+
+
+# Awards + season stats
+nba-vault game-data ingest-awards --player-id 2544
+nba-vault game-data ingest-season-stats --player-id 2544 --per-mode Totals
 ```
 
 ### Web Scraping Sources
 
 ```bash
 # Injury reports (ESPN/Rotowire)
-nba-vault ingest-injuries --source espn
+nba-vault scrapers ingest-injuries --source espn
 
-# Contract data (RealGM/Spotrac)
-nba-vault ingest-contracts --source realgm
+# Contract data (stub — raises NotImplementedError; excluded per PRD §3)
+nba-vault scrapers ingest-contracts --source realgm
 ```
 
 ## Season Format Conventions

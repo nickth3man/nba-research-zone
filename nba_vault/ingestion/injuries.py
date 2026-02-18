@@ -1,15 +1,17 @@
 """Injury data ingestor.
 
-This ingestor fetches player injury data from various sources including
-ESPN, NBA.com, and Rotowire. Since there's no official API for injuries,
-we use web scraping with proper rate limiting and error handling.
+Fetches player injury data from web-scraped sources (ESPN, Rotowire).
+Player names from scrapers are resolved to database player_ids using
+exact match first, then fuzzy matching via difflib.SequenceMatcher
+(threshold ≥ 0.85).
 
-The ingestor delegates web scraping to specialized scraper classes:
-- ESPNInjuryScraper: Scrapes ESPN NBA injuries page
-- RotowireInjuryScraper: Scrapes Rotowire NBA injuries page
-- Additional scrapers can be added without modifying this ingestor
+Historical injury data is inherently incomplete; records that cannot be
+resolved to a player_id are silently skipped and logged at DEBUG level.
 """
 
+from __future__ import annotations
+
+import difflib
 from datetime import date
 from typing import Any
 
@@ -27,246 +29,152 @@ from nba_vault.models.advanced_stats import InjuryCreate
 
 logger = structlog.get_logger(__name__)
 
+_FUZZY_CUTOFF = 0.85
+
 
 @register_ingestor
 class InjuryIngestor(BaseIngestor):
     """
-    Ingestor for player injury data from various sources.
+    Ingestor for player injury data from ESPN and Rotowire.
 
-    Supports fetching injury data from:
-    - ESPN NBA injuries page (via ESPNInjuryScraper)
-    - NBA.com injuries (if available)
-    - Rotowire NBA injuries (via RotowireInjuryScraper)
+    entity_id:  "all" | "team:<abbr>" | "player:<name>"
+    kwargs:
+        source (str): "espn" (default) | "rotowire"
 
-    Injury data includes:
-    - Player name and team
-    - Injury date
-    - Injury type and body part
-    - Status (out, day-to-day, questionable, etc.)
-    - Games missed
-    - Expected return date
-
-    Note: Injury data availability varies by source and season.
-    Historical injury data is often incomplete.
+    Usage:
+        ingestor = InjuryIngestor()
+        result = ingestor.ingest("all", conn, source="espn")
     """
 
     entity_type = "injuries"
 
-    def __init__(self, cache=None, rate_limiter=None):
-        """
-        Initialize InjuryIngestor.
-
-        Args:
-            cache: Content cache for API responses.
-            rate_limiter: Rate limiter for requests.
-        """
+    def __init__(self, cache: Any = None, rate_limiter: Any = None) -> None:
         super().__init__(cache, rate_limiter)
         self.session = requests.Session()
-        # Set a user agent to avoid being blocked
         self.session.headers.update(
             {
-                "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36"
+                "User-Agent": (
+                    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
+                    "AppleWebKit/537.36 (KHTML, like Gecko) "
+                    "Chrome/91.0.4472.124 Safari/537.36"
+                )
             }
         )
-
-        # Initialize scrapers
         self.espn_scraper = ESPNInjuryScraper(self.rate_limiter, self.session)
         self.rotowire_scraper = RotowireInjuryScraper(self.rate_limiter, self.session)
 
-    def fetch(
-        self,
-        entity_id: str,
-        source: str = "espn",
-        **kwargs: Any,
-    ) -> dict[str, Any]:
+    # ------------------------------------------------------------------
+    # Override ingest() to inject the player name→ID map before validate
+    # ------------------------------------------------------------------
+
+    def ingest(self, entity_id: str, conn: Any, **kwargs: Any) -> dict[str, Any]:
         """
-        Fetch injury data from various sources.
+        Full pipeline with player-name resolution injected before validate().
 
-        Args:
-            entity_id: "all" for all injuries, "team:<team_id>" for specific team,
-                      or "player:<player_id>" for specific player.
-            source: Data source ("espn", "rotowire", "nba").
-            **kwargs: Additional parameters for the request.
-
-        Returns:
-            Dictionary with injury data.
-
-        Raises:
-            ValueError: If source is not supported.
-            Exception: If fetch fails after retries.
+        Overrides BaseIngestor.ingest() to build a player name→ID lookup from
+        the SQLite `player` table, so that validate() can resolve scraped
+        player names to integer player_ids without a separate DB query.
         """
+        raw = self.fetch(entity_id, **kwargs)
+        raw["_player_name_map"] = self._build_player_name_map(conn)
+        validated = self.validate(raw)
+        rows_affected = self.upsert(validated, conn)
+        source = kwargs.get("source", "espn")
+        self.logger.info(
+            "Injury ingest complete",
+            entity_id=entity_id,
+            source=source,
+            rows_affected=rows_affected,
+        )
+        return {
+            "status": "SUCCESS",
+            "entity_id": entity_id,
+            "rows_affected": rows_affected,
+        }
+
+    # ------------------------------------------------------------------
+    # fetch / validate / upsert
+    # ------------------------------------------------------------------
+
+    def fetch(self, entity_id: str, **kwargs: Any) -> dict[str, Any]:
+        source: str = str(kwargs.get("source", "espn"))
+
         if entity_id == "all":
             self.logger.info("Fetching all injuries", source=source)
+            injuries = self._scrape(source)
+            return {"scope": "all", "source": source, "injuries": injuries}
 
-            if source == "espn":
-                injuries = self.espn_scraper.fetch()
-            elif source == "rotowire":
-                injuries = self.rotowire_scraper.fetch()
-            elif source == "nba":
-                injuries = self._fetch_nba_injuries()
-            else:
-                raise ValueError(f"Unsupported source: {source}")
+        if entity_id.startswith("team:"):
+            abbr = entity_id.split(":", 1)[1]
+            all_injuries = self._scrape(source)
+            filtered = [inj for inj in all_injuries if inj.get("team", "").lower() == abbr.lower()]
+            return {"scope": "team", "team": abbr, "source": source, "injuries": filtered}
 
-            return {
-                "scope": "all",
-                "source": source,
-                "injuries": injuries,
-            }
-
-        elif entity_id.startswith("team:"):
-            team_abbreviation = entity_id.split(":")[1]
-            self.logger.info("Fetching injuries for team", team=team_abbreviation, source=source)
-
-            # Filter injuries by team after fetching all
-            if source == "espn":
-                injuries = self.espn_scraper.fetch()
-            elif source == "rotowire":
-                injuries = self.rotowire_scraper.fetch()
-            else:
-                injuries = []
-
-            # Filter by team
-            filtered_injuries = [
-                inj for inj in injuries if inj.get("team", "").lower() == team_abbreviation.lower()
+        if entity_id.startswith("player:"):
+            name = entity_id.split(":", 1)[1]
+            all_injuries = self._scrape(source)
+            filtered = [
+                inj for inj in all_injuries if inj.get("player_name", "").lower() == name.lower()
             ]
+            return {"scope": "player", "player": name, "source": source, "injuries": filtered}
 
-            return {
-                "scope": "team",
-                "team": team_abbreviation,
-                "source": source,
-                "injuries": filtered_injuries,
-            }
+        raise ValueError(f"Invalid entity_id format: {entity_id!r}")
 
-        elif entity_id.startswith("player:"):
-            player_name = entity_id.split(":", 1)[1]
-            self.logger.info("Fetching injuries for player", player=player_name, source=source)
-
-            # Would need to search for specific player
-            # For now, return empty
-            return {
-                "scope": "player",
-                "player": player_name,
-                "source": source,
-                "injuries": [],
-            }
-
-        else:
-            raise ValueError(f"Invalid entity_id format: {entity_id}")
-
-    def _parse_injury_description(self, desc: str | None) -> tuple[str | None, str | None]:
-        """
-        Parse injury description to extract injury type and body part.
-
-        Delegates to the ESPN scraper's implementation.
-
-        Args:
-            desc: Injury description string.
-
-        Returns:
-            Tuple of (injury_type, body_part).
-        """
-        return self.espn_scraper.parse_injury_description(desc)
-
-    def _parse_date(self, date_str: str | None) -> date | None:
-        """
-        Parse date string into date object.
-
-        Delegates to the ESPN scraper's implementation.
-
-        Args:
-            date_str: Date string in various formats.
-
-        Returns:
-            Date object or None if parsing fails.
-        """
-        return self.espn_scraper.parse_date(date_str)
-
-    def _fetch_nba_injuries(self) -> list[dict[str, Any]]:
-        """
-        Fetch injuries from NBA.com (if available).
-
-        Returns:
-            List of injury dictionaries.
-
-        Note: NBA.com doesn't have a dedicated public injury API.
-        This method may need to be updated if NBA.com adds one.
-        """
-        # Placeholder for future NBA.com injury integration
-        self.logger.warning("NBA.com injury fetch not yet implemented")
-        return []
+    def _scrape(self, source: str) -> list[dict[str, Any]]:
+        if source == "espn":
+            return self.espn_scraper.fetch()  # type: ignore[return-value]
+        if source == "rotowire":
+            return self.rotowire_scraper.fetch()  # type: ignore[return-value]
+        raise ValueError(f"Unsupported injury source: {source!r}")
 
     def validate(self, raw: dict[str, Any]) -> list[pydantic.BaseModel]:
-        """
-        Validate raw injury data using Pydantic models.
+        name_map: dict[str, int] = raw.get("_player_name_map", {})
+        validated: list[pydantic.BaseModel] = []
 
-        Args:
-            raw: Raw data dictionary with 'injuries' key containing list of injury dicts.
-
-        Returns:
-            List of validated InjuryCreate models.
-
-        Raises:
-            pydantic.ValidationError: If validation fails.
-        """
-        injuries_data = raw.get("injuries", [])
-
-        validated_injuries = []
-
-        for injury_data in injuries_data:
+        for injury_data in raw.get("injuries", []):
             try:
-                # Extract player_id if available (would need player lookup)
-                # For now, use player_name as identifier
-                player_id = injury_data.get("player_id")  # This would need to be looked up
+                # Try to resolve player_id
+                player_id: int | None = injury_data.get("player_id")
                 if not player_id:
-                    # Skip injuries without player_id for now
-                    # In production, you'd look up the player_id from player_name
+                    player_name = str(injury_data.get("player_name", "") or "").strip()
+                    if player_name:
+                        player_id = self._resolve_player_id(player_name, name_map)
+                if not player_id:
+                    self.logger.debug(
+                        "Cannot resolve player_id for injury; skipping",
+                        player_name=injury_data.get("player_name"),
+                    )
                     continue
 
-                injury_record = {
-                    "player_id": player_id,
-                    "team_id": injury_data.get("team_id"),  # Would need team lookup
-                    "injury_date": injury_data.get("injury_date", date.today()),
-                    "injury_type": injury_data.get("injury_type"),
-                    "body_part": injury_data.get("body_part"),
-                    "status": injury_data.get("status", "Unknown"),
-                    "games_missed": injury_data.get("games_missed", 0),
-                    "return_date": injury_data.get("return_date"),
-                    "notes": injury_data.get("notes"),
-                }
-
-                validated_injury = InjuryCreate(**injury_record)
-                validated_injuries.append(validated_injury)
-
-            except pydantic.ValidationError as e:
-                self.logger.error(
-                    "Injury validation failed",
-                    injury_data=injury_data,
-                    errors=str(e),
+                injury_record = InjuryCreate(
+                    player_id=player_id,
+                    team_id=injury_data.get("team_id"),
+                    injury_date=injury_data.get("injury_date", date.today()),
+                    injury_type=injury_data.get("injury_type"),
+                    body_part=injury_data.get("body_part"),
+                    status=injury_data.get("status", "Unknown"),
+                    games_missed=injury_data.get("games_missed", 0),
+                    return_date=injury_data.get("return_date"),
+                    notes=injury_data.get("notes"),
                 )
-                # Don't raise - skip invalid records
-                continue
+                validated.append(injury_record)
 
-        self.logger.info("Validated injuries", count=len(validated_injuries))
-        return validated_injuries
+            except (pydantic.ValidationError, ValueError) as exc:
+                self.logger.warning(
+                    "Injury validation failed",
+                    player_name=injury_data.get("player_name"),
+                    error=str(exc),
+                )
 
-    def upsert(self, model: list[pydantic.BaseModel], conn) -> int:
-        """
-        Insert or update validated injury data in database.
+        self.logger.info("Validated injuries", count=len(validated))
+        return validated
 
-        Args:
-            model: List of validated InjuryCreate models.
-            conn: SQLite database connection.
-
-        Returns:
-            Number of rows affected.
-        """
+    def upsert(self, model: list[pydantic.BaseModel], conn: Any) -> int:
         rows_affected = 0
-
-        for injury in model:
-            if not isinstance(injury, InjuryCreate):
+        for item in model:
+            if not isinstance(item, InjuryCreate):
                 continue
-
-            # Check if similar injury exists
+            injury = item
             cursor = conn.execute(
                 """
                 SELECT injury_id FROM injury
@@ -277,85 +185,96 @@ class InjuryIngestor(BaseIngestor):
             existing = cursor.fetchone()
 
             if existing:
-                # Update existing injury
-                injury_id = existing[0]
-                self._update_injury(injury_id, injury, conn)
-                rows_affected += 1
+                conn.execute(
+                    """
+                    UPDATE injury SET
+                        team_id = ?, injury_type = ?, body_part = ?,
+                        games_missed = ?, return_date = ?, notes = ?
+                    WHERE injury_id = ?
+                    """,
+                    (
+                        injury.team_id,
+                        injury.injury_type,
+                        injury.body_part,
+                        injury.games_missed,
+                        injury.return_date,
+                        injury.notes,
+                        existing[0],
+                    ),
+                )
             else:
-                # Insert new injury
-                self._insert_injury(injury, conn)
-                rows_affected += 1
+                conn.execute(
+                    """
+                    INSERT INTO injury
+                        (player_id, team_id, injury_date, injury_type,
+                         body_part, status, games_missed, return_date, notes)
+                    VALUES (?,?,?,?,?,?,?,?,?)
+                    """,
+                    (
+                        injury.player_id,
+                        injury.team_id,
+                        injury.injury_date,
+                        injury.injury_type,
+                        injury.body_part,
+                        injury.status,
+                        injury.games_missed,
+                        injury.return_date,
+                        injury.notes,
+                    ),
+                )
+            rows_affected += 1
 
-            # Log to ingestion_audit
-            conn.execute(
-                """
-                INSERT INTO ingestion_audit
-                (entity_type, entity_id, status, source, metadata, ingested_at)
-                VALUES (?, ?, 'SUCCESS', ?, ?, datetime('now'))
-                """,
-                (
-                    self.entity_type,
-                    str(injury.player_id),
-                    "web_scraping",
-                    f"player: {injury.player_id}, date: {injury.injury_date}",
-                ),
-            )
-
+        conn.execute(
+            """
+            INSERT INTO ingestion_audit
+                (entity_type, entity_id, status, source, ingest_ts, row_count)
+            VALUES (?, ?, 'SUCCESS', 'web_scraping', datetime('now'), ?)
+            ON CONFLICT(entity_type, entity_id, source) DO UPDATE SET
+                ingest_ts = excluded.ingest_ts,
+                status    = excluded.status,
+                row_count = excluded.row_count
+            """,
+            (self.entity_type, "all", rows_affected),
+        )
+        self.logger.info("Upserted injuries", rows_affected=rows_affected)
         return rows_affected
 
-    def _insert_injury(self, injury: InjuryCreate, conn) -> None:
-        """
-        Insert a new injury into the database.
+    # ------------------------------------------------------------------
+    # Helpers
+    # ------------------------------------------------------------------
 
-        Args:
-            injury: InjuryCreate model.
-            conn: SQLite database connection.
-        """
-        conn.execute(
-            """
-            INSERT INTO injury (
-                player_id, team_id, injury_date, injury_type, body_part,
-                status, games_missed, return_date, notes
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
-            """,
-            (
-                injury.player_id,
-                injury.team_id,
-                injury.injury_date,
-                injury.injury_type,
-                injury.body_part,
-                injury.status,
-                injury.games_missed,
-                injury.return_date,
-                injury.notes,
-            ),
+    def _build_player_name_map(self, conn: Any) -> dict[str, int]:
+        """Build {full_name.lower(): player_id} from the player table."""
+        try:
+            cur = conn.execute(
+                "SELECT player_id, full_name FROM player WHERE full_name IS NOT NULL"
+            )
+            return {row[1].strip().lower(): row[0] for row in cur.fetchall() if row[1]}
+        except Exception as exc:
+            self.logger.warning("Failed to build player name map", error=str(exc))
+            return {}
+
+    def _resolve_player_id(self, name: str, name_map: dict[str, int]) -> int | None:
+        """Exact then fuzzy match a scraped player name to a DB player_id."""
+        name_lower = name.strip().lower()
+        # 1. Exact
+        if name_lower in name_map:
+            return name_map[name_lower]
+        # 2. Fuzzy
+        matches = difflib.get_close_matches(
+            name_lower, list(name_map.keys()), n=1, cutoff=_FUZZY_CUTOFF
         )
+        if matches:
+            self.logger.debug(
+                "Fuzzy-matched player name",
+                scraped=name,
+                matched=matches[0],
+            )
+            return name_map[matches[0]]
+        return None
 
-    def _update_injury(self, injury_id: int, injury: InjuryCreate, conn) -> None:
-        """
-        Update an existing injury in the database.
+    def _parse_injury_description(self, desc: str | None) -> tuple[str | None, str | None]:
+        return self.espn_scraper.parse_injury_description(desc)
 
-        Args:
-            injury_id: Database ID of the injury.
-            injury: InjuryCreate model.
-            conn: SQLite database connection.
-        """
-        conn.execute(
-            """
-            UPDATE injury SET
-                team_id = ?, injury_date = ?, injury_type = ?, body_part = ?,
-                status = ?, games_missed = ?, return_date = ?, notes = ?
-            WHERE injury_id = ?
-            """,
-            (
-                injury.team_id,
-                injury.injury_date,
-                injury.injury_type,
-                injury.body_part,
-                injury.status,
-                injury.games_missed,
-                injury.return_date,
-                injury.notes,
-                injury_id,
-            ),
-        )
+    def _parse_date(self, date_str: str | None) -> date | None:
+        return self.espn_scraper.parse_date(date_str)

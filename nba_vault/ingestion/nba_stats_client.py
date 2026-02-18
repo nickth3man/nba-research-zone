@@ -327,7 +327,6 @@ class NBAStatsClient:
         """
         return self._make_request(
             "get_all_lineups",
-            league_id="00",  # NBA
             season=season,
             season_type=season_type,
             measure_type=measure_type,
@@ -378,8 +377,8 @@ class NBAStatsClient:
 
     def get_team_advanced_stats(
         self,
-        team_id: int,
         season: str,
+        team_id: int = 0,
         season_type: str = "Regular Season",
         measure_type: str = "Advanced",
         per_mode: str = "PerGame",

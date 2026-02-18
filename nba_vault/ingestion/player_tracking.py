@@ -236,13 +236,12 @@ class PlayerTrackingIngestor(BaseIngestor):
                 conn.execute(
                     """
                     INSERT INTO ingestion_audit
-                    (entity_type, entity_id, status, source, metadata, ingested_at)
-                    VALUES (?, ?, 'SUCCESS', 'nba_stats_api', ?, datetime('now'))
+                    (entity_type, entity_id, status, source, ingest_ts, row_count)
+                    VALUES (?, ?, 'SUCCESS', 'nba_stats_api', datetime('now'), 1)
                     """,
                     (
                         self.entity_type,
                         f"{tracking_record.game_id}_{tracking_record.player_id}",
-                        f"season: {tracking_record.season_id}",
                     ),
                 )
 

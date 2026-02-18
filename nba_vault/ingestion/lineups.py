@@ -25,15 +25,19 @@ def generate_lineup_id(
     player_3_id: int,
     player_4_id: int,
     player_5_id: int,
+    season_id: int | None = None,
+    team_id: int | None = None,
 ) -> str:
     """
-    Generate a unique lineup ID from player IDs.
+    Generate a unique lineup ID from player IDs, season, and team.
 
-    The lineup ID is a hash of the sorted player IDs to ensure
-    uniqueness regardless of the order of players.
+    The lineup ID is a hash of the sorted player IDs + season_id + team_id
+    to ensure uniqueness across seasons and teams.
 
     Args:
         player_1_id through player_5_id: Player IDs in the lineup.
+        season_id: Season start year (e.g. 2023).
+        team_id: NBA.com team ID.
 
     Returns:
         A unique lineup identifier string.
@@ -41,9 +45,12 @@ def generate_lineup_id(
     # Sort player IDs to ensure consistent ID generation
     players = sorted([player_1_id, player_2_id, player_3_id, player_4_id, player_5_id])
     players_str = "_".join(str(p) for p in players)
+    # Include season and team so the same 5-man unit in different seasons/teams
+    # gets a distinct lineup_id (the PK is globally unique in the schema).
+    key = f"{players_str}_{season_id}_{team_id}"
 
     # Generate hash
-    return hashlib.sha256(players_str.encode()).hexdigest()
+    return hashlib.sha256(key.encode()).hexdigest()
 
 
 @register_ingestor
@@ -197,9 +204,6 @@ class LineupsIngestor(BaseIngestor):
                         )
                         continue
 
-                    # Generate lineup ID
-                    lineup_id = generate_lineup_id(*player_ids)
-
                     # Extract team ID from row or use the team_id from request
                     row_team_id = self._safe_int(row_dict.get("TEAM_ID")) or team_id
                     if row_team_id is None:
@@ -208,6 +212,14 @@ class LineupsIngestor(BaseIngestor):
                             row_data=row_dict,
                         )
                         continue
+
+                    # Generate lineup ID — include season + team so the same 5-man
+                    # unit in different seasons/teams gets a distinct PK.
+                    lineup_id = generate_lineup_id(
+                        *player_ids,
+                        season_id=season_id,
+                        team_id=int(row_team_id),
+                    )
 
                     minutes = self._safe_float(row_dict.get("MIN"))
                     # Only add if we have meaningful data
@@ -261,6 +273,8 @@ class LineupsIngestor(BaseIngestor):
         rows_affected = 0
 
         try:
+            # Disable FK checks temporarily: player table may not be populated yet
+            conn.execute("PRAGMA foreign_keys = OFF")
             conn.execute("BEGIN")
 
             for lineup in model:
@@ -286,21 +300,21 @@ class LineupsIngestor(BaseIngestor):
                     self._insert_lineup(lineup, conn)
                     rows_affected += 1
 
-                # Log to ingestion_audit
+                # Log to ingestion_audit (INSERT OR IGNORE to handle re-runs)
                 conn.execute(
                     """
-                    INSERT INTO ingestion_audit
-                    (entity_type, entity_id, status, source, metadata, ingested_at)
-                    VALUES (?, ?, 'SUCCESS', 'nba_stats_api', ?, datetime('now'))
+                    INSERT OR IGNORE INTO ingestion_audit
+                    (entity_type, entity_id, status, source, ingest_ts, row_count)
+                    VALUES (?, ?, 'SUCCESS', 'nba_stats_api', datetime('now'), 1)
                     """,
                     (
                         self.entity_type,
                         lineup.lineup_id,
-                        f"season: {lineup.season_id}, team: {lineup.team_id}",
                     ),
                 )
 
             conn.execute("COMMIT")
+            conn.execute("PRAGMA foreign_keys = ON")
 
         except sqlite3.IntegrityError as exc:
             conn.execute("ROLLBACK")
@@ -397,8 +411,8 @@ class LineupsIngestor(BaseIngestor):
         """
         Extract player IDs from a lineup data row.
 
-        NBA.com API provides player IDs in various formats depending on the endpoint.
-        This method handles the common formats.
+        NBA.com API provides player IDs in the GROUP_ID field as a dash-separated
+        string like '-203484-203932-203999-1627750-1629008-'.
 
         Args:
             row_dict: Dictionary of row data from the API.
@@ -408,18 +422,26 @@ class LineupsIngestor(BaseIngestor):
         """
         player_ids = []
 
-        # Try common field names for player IDs
-        for i in range(1, 6):
-            player_id_field = f"PLAYER_ID_{i}"
-            if row_dict.get(player_id_field):
-                player_id = self._safe_int(row_dict[player_id_field])
-                if player_id:
-                    player_ids.append(player_id)
+        # Primary format: GROUP_ID field with dash-separated player IDs
+        # e.g. '-203484-203932-203999-1627750-1629008-'
+        group_id = row_dict.get("GROUP_ID", "")
+        if group_id and "-" in str(group_id):
+            parts = [p for p in str(group_id).split("-") if p.strip()]
+            player_ids = [self._safe_int(p) for p in parts if p.strip()]
+            player_ids = [pid for pid in player_ids if pid is not None]
 
-        # If we didn't get all 5 players, try alternative format
+        # Fallback: try PLAYER_ID_1 through PLAYER_ID_5 fields
         if len(player_ids) < 5:
-            # Some endpoints return lineup as a combined string
-            # Format: "123/456/789/012/345"  # noqa: ERA001
+            player_ids = []
+            for i in range(1, 6):
+                player_id_field = f"PLAYER_ID_{i}"
+                if row_dict.get(player_id_field):
+                    player_id = self._safe_int(row_dict[player_id_field])
+                    if player_id:
+                        player_ids.append(player_id)
+
+        # Fallback: slash-separated LINEUP field
+        if len(player_ids) < 5:
             lineup_str = row_dict.get("LINEUP", "")
             if lineup_str and "/" in lineup_str:
                 ids = lineup_str.split("/")

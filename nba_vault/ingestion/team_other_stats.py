@@ -258,13 +258,12 @@ class TeamOtherStatsIngestor(BaseIngestor):
                 conn.execute(
                     """
                     INSERT INTO ingestion_audit
-                    (entity_type, entity_id, status, source, metadata, ingested_at)
-                    VALUES (?, ?, 'SUCCESS', 'nba_stats_api', ?, datetime('now'))
+                    (entity_type, entity_id, status, source, ingest_ts, row_count)
+                    VALUES (?, ?, 'SUCCESS', 'nba_stats_api', datetime('now'), 1)
                     """,
                     (
                         self.entity_type,
                         f"{stats_record.game_id}_{stats_record.team_id}",
-                        f"game: {stats_record.game_id}",
                     ),
                 )
 

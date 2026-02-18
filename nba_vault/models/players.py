@@ -9,17 +9,27 @@ from pydantic import BaseModel, Field, field_validator, model_validator
 
 class BasketballReferencePlayer(BaseModel):
     """
-    Raw player data from Basketball Reference web scraper.
+    Raw player data from Basketball Reference web scraper or NBA.com API.
 
-    This model validates the raw data format from basketball_reference_web_scraper.
+    This model validates the raw data format from basketball_reference_web_scraper
+    or the NBA.com CommonAllPlayers endpoint (used as fallback when BR is blocked).
     """
 
-    slug: str = Field(..., description="Basketball Reference slug (e.g., 'jamesle01')")
+    slug: str = Field(..., description="Basketball Reference slug or NBA.com person ID")
     name: str = Field(..., description="Player name")
-    position: str = Field(..., description="Position")
-    height: str = Field(..., description="Height (format: '6-11')")
-    weight: str = Field(..., description="Weight in pounds")
+    position: str = Field(default="", description="Position")
+    height: str = Field(default="", description="Height (format: '6-11')")
+    weight: str = Field(default="", description="Weight in pounds")
     team_abbreviation: str | None = Field(None, description="Team abbreviation")
+    # Extra fields from NBA.com API (optional, ignored if not present)
+    first_name: str | None = Field(None, description="First name")
+    last_name: str | None = Field(None, description="Last name")
+    nba_person_id: int | None = Field(None, description="NBA.com person ID")
+    nba_slug: str | None = Field(None, description="NBA.com player slug")
+    team_id: int | None = Field(None, description="NBA.com team ID")
+    from_year: int | None = Field(None, description="First year played")
+    to_year: int | None = Field(None, description="Last year played")
+    is_active: bool | None = Field(None, description="Whether player is currently active")
     games_played: int = Field(default=0, description="Games played")
     games_started: int = Field(default=0, description="Games started")
     minutes_played: float = Field(default=0.0, description="Minutes played")
@@ -200,8 +210,20 @@ class PlayerCreate(BaseModel):
             position_mapping.get(data.position.split("-")[0].strip()) if data.position else None
         )
 
+        # Use NBA.com fields if available (from NBA.com API source)
+        if data.first_name is not None:
+            first_name = data.first_name
+        if data.last_name is not None:
+            last_name = data.last_name
+
+        # Use NBA.com person_id as player_id if available
+        player_id = data.nba_person_id if data.nba_person_id else None
+
+        # Use is_active from data if available
+        is_active = data.is_active if data.is_active is not None else True
+
         return cls(
-            player_id=None,  # Basketball Reference doesn't provide NBA.com ID
+            player_id=player_id,
             bbref_id=data.slug,
             first_name=first_name,
             last_name=last_name,
@@ -209,9 +231,11 @@ class PlayerCreate(BaseModel):
             display_name=data.name,
             height_inches=height_inches,
             weight_lbs=weight_lbs,
-            position=data.position,
+            position=data.position or None,
             primary_position=primary_position,
-            is_active=True,  # Assume active if in season totals
+            is_active=is_active,
+            from_year=data.from_year,
+            to_year=data.to_year,
             data_availability_flags=1 << 0,  # Set basic stats flag
         )
 

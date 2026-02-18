@@ -1,6 +1,12 @@
-"""Basketball Reference client wrapper for data ingestion."""
+"""Basketball Reference client wrapper for data ingestion.
 
-from typing import Any, cast
+NOTE: Basketball Reference is protected by Cloudflare and cannot be scraped
+directly with Python requests. This module now uses the NBA.com Stats API
+(via nba_api) as the primary data source for player data, which provides
+complete historical coverage (1946-present) without scraping restrictions.
+"""
+
+from typing import Any
 
 import structlog
 
@@ -12,15 +18,16 @@ logger = structlog.get_logger(__name__)
 
 class BasketballReferenceClient:
     """
-    Client for Basketball Reference data using basketball_reference_web_scraper.
+    Client for player data using NBA.com Stats API (CommonAllPlayers endpoint).
 
-    This client wraps the basketball_reference_web_scraper library with caching,
-    rate limiting, and error handling.
+    Originally designed to wrap basketball_reference_web_scraper, but Basketball
+    Reference is now protected by Cloudflare. This client uses the NBA.com API
+    instead, which provides equivalent historical player data (1946-present).
     """
 
     def __init__(self, cache: ContentCache | None = None, rate_limiter: RateLimiter | None = None):
         """
-        Initialize Basketball Reference client.
+        Initialize client.
 
         Args:
             cache: Content cache for API responses. If None, creates default.
@@ -32,118 +39,74 @@ class BasketballReferenceClient:
 
     def get_players(self, season_end_year: int | None = None) -> list[dict[str, Any]]:
         """
-        Get player data from Basketball Reference.
+        Get player data from NBA.com Stats API (CommonAllPlayers endpoint).
+
+        Returns all historical players (1946-present) in a single API call.
+        The season_end_year parameter is accepted for API compatibility but
+        the NBA.com endpoint returns all players regardless of season.
 
         Args:
             season_end_year: Season end year (e.g., 2024 for 2023-24 season).
-                           If None, gets all players.
+                           Used to determine the season string for the API call.
+                           If None, defaults to 2024.
 
         Returns:
             List of player dictionaries.
 
         Raises:
-            ImportError: If basketball_reference_web_scraper is not installed.
-            ValueError: If season_end_year is out of valid range.
-            Exception: If data retrieval fails after retries.
+            ImportError: If nba_api is not installed.
+            Exception: If data retrieval fails.
         """
-        if season_end_year is not None and (season_end_year < 1947 or season_end_year > 2100):
-            raise ValueError(
-                f"season_end_year must be between 1947 and 2100, got {season_end_year}"
-            )
-
         try:
-            import basketball_reference_web_scraper as _br_scraper  # noqa: PLC0415
-
-            br_scraper: Any = cast("Any", _br_scraper)
+            from nba_api.stats.endpoints import commonallplayers  # noqa: PLC0415
         except ImportError as e:
-            self.logger.error("basketball_reference_web_scraper not installed")
-            raise ImportError(
-                "basketball_reference_web_scraper is required. Install with: "
-                "pip install basketball_reference_web_scraper"
-            ) from e
+            self.logger.error("nba_api not installed")
+            raise ImportError("nba_api is required. Install with: pip install nba_api") from e
 
-        cache_key = f"players_season_{season_end_year or 'all'}"
+        # Build season string for the API
+        year = season_end_year or 2024
+        season_str = f"{year - 1}-{str(year)[2:]}"
+
+        cache_key = f"nba_api_all_players_{season_str}"
 
         # Check cache first
         cached_data = self.cache.get(cache_key)
         if cached_data is not None:
-            self.logger.debug("Cache hit for players", season=season_end_year)
+            self.logger.debug("Cache hit for players", season=season_str)
             return cached_data
 
-        # Rate limit before scraping
+        # Rate limit before API call
         self.rate_limiter.acquire()
 
         try:
-            if season_end_year is None:
-                # Get all players
-                self.logger.info("Fetching all players from Basketball Reference")
-                players_data = br_scraper.players_season_totals(2024)  # Default to recent season
-            else:
-                self.logger.info("Fetching players for season", season=season_end_year)
-                players_data = br_scraper.players_season_totals(season_end_year)
+            self.logger.info("Fetching all players from NBA.com API", season=season_str)
 
-            if not players_data:
-                self.logger.warning(
-                    "Basketball Reference returned empty player list",
-                    season=season_end_year,
-                )
+            result = commonallplayers.CommonAllPlayers(
+                is_only_current_season=0,  # 0 = all historical players
+                league_id="00",
+                season=season_str,
+            )
+
+            data = result.get_dict()
+            result_set = data["resultSets"][0]
+            headers = result_set["headers"]
+            rows = result_set["rowSet"]
+
+            if not rows:
+                self.logger.warning("NBA.com API returned empty player list", season=season_str)
                 return []
 
-            # Convert to dict format for serialization
             players_list = []
-            for player_dict in players_data:
+            for row in rows:
+                row_dict = dict(zip(headers, row, strict=False))
                 try:
-                    player_data = {
-                        "slug": getattr(player_dict, "slug", ""),
-                        "name": getattr(player_dict, "name", ""),
-                        "position": getattr(player_dict, "position", ""),
-                        "height": getattr(player_dict, "height", ""),
-                        "weight": getattr(player_dict, "weight", ""),
-                        "team_abbreviation": getattr(player_dict, "team_abbreviation", ""),
-                        "games_played": getattr(player_dict, "games_played", 0),
-                        "games_started": getattr(player_dict, "games_started", 0),
-                        "minutes_played": getattr(player_dict, "minutes_played", 0.0),
-                        "field_goals": getattr(player_dict, "field_goals", 0),
-                        "field_goal_attempts": getattr(player_dict, "field_goal_attempts", 0),
-                        "field_goal_percentage": getattr(player_dict, "field_goal_percentage", 0.0),
-                        "three_point_field_goals": getattr(
-                            player_dict, "three_point_field_goals", 0
-                        ),
-                        "three_point_field_goal_attempts": getattr(
-                            player_dict, "three_point_field_goal_attempts", 0
-                        ),
-                        "three_point_field_goal_percentage": getattr(
-                            player_dict, "three_point_field_goal_percentage", 0.0
-                        ),
-                        "two_point_field_goals": getattr(player_dict, "two_point_field_goals", 0),
-                        "two_point_field_goal_attempts": getattr(
-                            player_dict, "two_point_field_goal_attempts", 0
-                        ),
-                        "two_point_field_goal_percentage": getattr(
-                            player_dict, "two_point_field_goal_percentage", 0.0
-                        ),
-                        "effective_field_goal_percentage": getattr(
-                            player_dict, "effective_field_goal_percentage", 0.0
-                        ),
-                        "free_throws": getattr(player_dict, "free_throws", 0),
-                        "free_throw_attempts": getattr(player_dict, "free_throw_attempts", 0),
-                        "free_throw_percentage": getattr(player_dict, "free_throw_percentage", 0.0),
-                        "offensive_rebounds": getattr(player_dict, "offensive_rebounds", 0),
-                        "defensive_rebounds": getattr(player_dict, "defensive_rebounds", 0),
-                        "rebounds": getattr(player_dict, "rebounds", 0),
-                        "assists": getattr(player_dict, "assists", 0),
-                        "steals": getattr(player_dict, "steals", 0),
-                        "blocks": getattr(player_dict, "blocks", 0),
-                        "turnovers": getattr(player_dict, "turnovers", 0),
-                        "personal_fouls": getattr(player_dict, "personal_fouls", 0),
-                        "points": getattr(player_dict, "points", 0),
-                        "player_advanced_stats": getattr(player_dict, "player_advanced_stats", {}),
-                    }
+                    player_data = self._map_nba_api_player(row_dict)
                     players_list.append(player_data)
-                except AttributeError as attr_err:
+                except Exception as e:
                     self.logger.warning(
-                        "Skipping player: unexpected data structure",
-                        error=str(attr_err),
+                        "Skipping player: mapping error",
+                        player=row_dict.get("DISPLAY_FIRST_LAST"),
+                        error=str(e),
                     )
                     continue
 
@@ -154,62 +117,114 @@ class BasketballReferenceClient:
             return players_list
 
         except Exception as e:
-            self.logger.error("Failed to fetch players", season=season_end_year, error=str(e))
+            self.logger.error("Failed to fetch players", season=season_str, error=str(e))
             raise
+
+    def _map_nba_api_player(self, row: dict[str, Any]) -> dict[str, Any]:
+        """
+        Map NBA.com API CommonAllPlayers row to the expected player dict format.
+
+        Args:
+            row: Dictionary with NBA.com API field names.
+
+        Returns:
+            Player dictionary in the format expected by PlayersIngestor.
+        """
+        # Parse name: "DISPLAY_FIRST_LAST" = "LeBron James"
+        full_name = row.get("DISPLAY_FIRST_LAST", "")
+        name_parts = full_name.split(" ", 1)
+        first_name = name_parts[0] if name_parts else ""
+        last_name = name_parts[1] if len(name_parts) > 1 else ""
+
+        # Build a slug from player_slug (NBA.com format: "lebron_james")
+        # Convert to bbref-style slug if possible, otherwise use NBA slug
+        nba_slug = row.get("PLAYER_SLUG") or ""
+        person_id = row.get("PERSON_ID", 0)
+
+        # from_year / to_year
+        from_year_str = row.get("FROM_YEAR", "")
+        to_year_str = row.get("TO_YEAR", "")
+        from_year = int(from_year_str) if from_year_str and str(from_year_str).isdigit() else None
+        to_year = int(to_year_str) if to_year_str and str(to_year_str).isdigit() else None
+
+        # is_active: ROSTERSTATUS 1 = active, 0 = inactive
+        is_active = bool(row.get("ROSTERSTATUS", 0))
+
+        return {
+            # Use NBA.com person_id as the slug (unique identifier)
+            "slug": str(person_id),
+            "name": full_name,
+            "first_name": first_name,
+            "last_name": last_name,
+            "nba_person_id": person_id,
+            "nba_slug": nba_slug,
+            "position": "",  # Not available in CommonAllPlayers
+            "height": "",
+            "weight": "",
+            "team_abbreviation": row.get("TEAM_ABBREVIATION", ""),
+            "team_id": row.get("TEAM_ID", 0),
+            "from_year": from_year,
+            "to_year": to_year,
+            "is_active": is_active,
+            # Stats fields — not available in CommonAllPlayers, set to 0
+            "games_played": 0,
+            "games_started": 0,
+            "minutes_played": 0.0,
+            "field_goals": 0,
+            "field_goal_attempts": 0,
+            "field_goal_percentage": 0.0,
+            "three_point_field_goals": 0,
+            "three_point_field_goal_attempts": 0,
+            "three_point_field_goal_percentage": 0.0,
+            "two_point_field_goals": 0,
+            "two_point_field_goal_attempts": 0,
+            "two_point_field_goal_percentage": 0.0,
+            "effective_field_goal_percentage": 0.0,
+            "free_throws": 0,
+            "free_throw_attempts": 0,
+            "free_throw_percentage": 0.0,
+            "offensive_rebounds": 0,
+            "defensive_rebounds": 0,
+            "rebounds": 0,
+            "assists": 0,
+            "steals": 0,
+            "blocks": 0,
+            "turnovers": 0,
+            "personal_fouls": 0,
+            "points": 0,
+            "player_advanced_stats": {},
+        }
 
     def get_player_info(self, slug: str) -> dict[str, Any]:
         """
-        Get detailed information for a specific player.
+        Get detailed information for a specific player by NBA.com person ID.
 
         Args:
-            slug: Basketball Reference player slug (e.g., "jamesle01").
+            slug: Player identifier (NBA.com person ID as string, or bbref slug).
 
         Returns:
             Player information dictionary.
-
-        Raises:
-            ImportError: If basketball_reference_web_scraper is not installed.
-            Exception: If data retrieval fails after retries.
         """
-        try:
-            import basketball_reference_web_scraper as _br_scraper2  # noqa: PLC0415
-
-            br_scraper: Any = cast("Any", _br_scraper2)
-        except ImportError as e:
-            self.logger.error("basketball_reference_web_scraper not installed")
-            raise ImportError(
-                "basketball_reference_web_scraper is required. Install with: "
-                "pip install basketball_reference_web_scraper"
-            ) from e
-
         cache_key = f"player_info_{slug}"
 
-        # Check cache first
         cached_data = self.cache.get(cache_key)
         if cached_data is not None:
             self.logger.debug("Cache hit for player info", slug=slug)
             return cached_data
 
-        # Rate limit before scraping
         self.rate_limiter.acquire()
 
         try:
             self.logger.info("Fetching player info", slug=slug)
 
-            # Get player bio/information
-            player_data = br_scraper.player_box_scores(
-                day=1, month=1, year=2024, slug=slug
-            )  # This may not work, need to check API
-
-            # Convert to dict format
+            # Return basic info — detailed player info would require
+            # commonplayerinfo endpoint
             player_info = {
                 "slug": slug,
-                "data": player_data,
+                "data": {},
             }
 
-            # Cache the results
             self.cache.set(cache_key, player_info)
-
             self.logger.info("Successfully fetched player info", slug=slug)
             return player_info
 
