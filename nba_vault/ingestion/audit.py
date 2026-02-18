@@ -1,7 +1,7 @@
 """Ingestion audit tracking."""
 
 import sqlite3
-from datetime import datetime
+from datetime import UTC, datetime
 from typing import Any
 
 import structlog
@@ -42,7 +42,7 @@ class AuditLogger:
             row_count: Number of rows affected.
             error_message: Error message if status is "FAILED".
         """
-        ingest_ts = datetime.utcnow().isoformat()
+        ingest_ts = datetime.now(UTC).isoformat()
 
         try:
             self.conn.execute(

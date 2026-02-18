@@ -8,7 +8,7 @@ possession data, and other advanced metrics.
 
 from datetime import date
 
-from pydantic import BaseModel, Field, field_validator
+from pydantic import BaseModel, Field, field_validator, model_validator
 
 
 class TeamGameOtherStatsCreate(BaseModel):
@@ -71,20 +71,19 @@ class LineupCreate(BaseModel):
     def_rating: float | None = Field(None, description="Defensive rating")
     net_rating: float | None = Field(None, description="Net rating")
 
-    @field_validator("player_1_id", "player_2_id", "player_3_id", "player_4_id", "player_5_id")
-    @classmethod
-    def validate_unique_players(cls, v, info):
+    @model_validator(mode="after")
+    def validate_unique_players(self):
         """Ensure all five players are unique"""
         players = [
-            info.data.get("player_1_id"),
-            info.data.get("player_2_id"),
-            info.data.get("player_3_id"),
-            info.data.get("player_4_id"),
-            info.data.get("player_5_id"),
+            self.player_1_id,
+            self.player_2_id,
+            self.player_3_id,
+            self.player_4_id,
+            self.player_5_id,
         ]
         if len(set(players)) != 5:
             raise ValueError("All five players must be unique")
-        return v
+        return self
 
 
 class LineupGameLogCreate(BaseModel):
@@ -226,8 +225,10 @@ class TeamSeasonAdvancedCreate(BaseModel):
     net_rating: float | None = Field(None, description="Net rating")
     pace: float | None = Field(None, ge=0, description="Pace factor")
     effective_fg_pct: float | None = Field(None, ge=0, le=1, description="Effective FG%")
-    turnover_pct: float | None = Field(None, ge=0, le=1, description="Turnover percentage")
-    offensive_rebound_pct: float | None = Field(None, ge=0, le=1, description="Offensive rebound %")
+    turnover_pct: float | None = Field(None, ge=0, le=100, description="Turnover percentage")
+    offensive_rebound_pct: float | None = Field(
+        None, ge=0, le=100, description="Offensive rebound %"
+    )
     free_throw_rate: float | None = Field(None, ge=0, description="Free throw rate")
-    three_point_rate: float | None = Field(None, ge=0, le=1, description="3-point rate")
+    three_point_rate: float | None = Field(None, ge=0, le=100, description="3-point rate")
     true_shooting_pct: float | None = Field(None, ge=0, le=1, description="True shooting %")

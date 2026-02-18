@@ -63,3 +63,7 @@ CLAUDE.md
 
 # Generated tool output
 repomix-output.xml
+/.cline
+/.claude
+/.clinerules
+/.cursor

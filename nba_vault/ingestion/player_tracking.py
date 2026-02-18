@@ -6,7 +6,7 @@ Tracking data is available from the 2013-14 season onwards.
 """
 
 import sqlite3
-from typing import Any, cast
+from typing import Any
 
 import pydantic
 import structlog
@@ -165,32 +165,20 @@ class PlayerTrackingIngestor(BaseIngestor):
                         player_id=int(row_player_id),
                         team_id=int(row_team_id),
                         season_id=season_id,
-                        minutes_played=cast("float | None", self._safe_float(row_dict.get("MIN"))),
-                        distance_miles=cast(
-                            "float | None", self._safe_float(row_dict.get("DIST_MILES"))
-                        ),
-                        distance_miles_offensive=cast(
-                            "float | None", self._safe_float(row_dict.get("DIST_MILES_OFF"))
-                        ),
-                        distance_miles_defensive=cast(
-                            "float | None", self._safe_float(row_dict.get("DIST_MILES_DEF"))
-                        ),
-                        speed_mph_avg=cast("float | None", self._safe_float(row_dict.get("SPD"))),
-                        speed_mph_max=cast(
-                            "float | None", self._safe_float(row_dict.get("MAX_SPEED"))
-                        ),
-                        touches=cast("int | None", self._safe_int(row_dict.get("TOUCHES"))),
-                        touches_catch_shoot=cast("int | None", self._safe_int(row_dict.get("EFC"))),
-                        touches_paint=cast("int | None", self._safe_int(row_dict.get("PAINT"))),
-                        touches_post_up=cast("int | None", self._safe_int(row_dict.get("POST"))),
-                        drives=cast("int | None", self._safe_int(row_dict.get("DRIVES"))),
-                        drives_pts=cast("int | None", self._safe_int(row_dict.get("DRIVES_PTS"))),
-                        pull_up_shots=cast(
-                            "int | None", self._safe_int(row_dict.get("PULL_UP_FGA"))
-                        ),
-                        pull_up_shots_made=cast(
-                            "int | None", self._safe_int(row_dict.get("PULL_UP_FGM"))
-                        ),
+                        minutes_played=self._safe_float(row_dict.get("MIN")),
+                        distance_miles=self._safe_float(row_dict.get("DIST_MILES")),
+                        distance_miles_offensive=self._safe_float(row_dict.get("DIST_MILES_OFF")),
+                        distance_miles_defensive=self._safe_float(row_dict.get("DIST_MILES_DEF")),
+                        speed_mph_avg=self._safe_float(row_dict.get("SPD")),
+                        speed_mph_max=self._safe_float(row_dict.get("MAX_SPEED")),
+                        touches=self._safe_int(row_dict.get("TOUCHES")),
+                        touches_catch_shoot=self._safe_int(row_dict.get("EFC")),
+                        touches_paint=self._safe_int(row_dict.get("PAINT")),
+                        touches_post_up=self._safe_int(row_dict.get("POST")),
+                        drives=self._safe_int(row_dict.get("DRIVES")),
+                        drives_pts=self._safe_int(row_dict.get("DRIVES_PTS")),
+                        pull_up_shots=self._safe_int(row_dict.get("PULL_UP_FGA")),
+                        pull_up_shots_made=self._safe_int(row_dict.get("PULL_UP_FGM")),
                     )
                     validated_records.append(validated_record)
 

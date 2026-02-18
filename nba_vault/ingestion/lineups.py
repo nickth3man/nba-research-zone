@@ -6,7 +6,7 @@ including performance metrics for specific player combinations.
 
 import hashlib
 import sqlite3
-from typing import Any, cast
+from typing import Any
 
 import pydantic
 import structlog
@@ -209,7 +209,7 @@ class LineupsIngestor(BaseIngestor):
                         )
                         continue
 
-                    minutes = cast("float | None", self._safe_float(row_dict.get("MIN")))
+                    minutes = self._safe_float(row_dict.get("MIN"))
                     # Only add if we have meaningful data
                     if not minutes or minutes <= 0:
                         continue
@@ -224,22 +224,15 @@ class LineupsIngestor(BaseIngestor):
                         player_4_id=player_ids[3],
                         player_5_id=player_ids[4],
                         minutes_played=minutes,
-                        possessions=cast("int", self._safe_int(row_dict.get("POSS")) or 0),
-                        points_scored=cast("int", self._safe_int(row_dict.get("PTS")) or 0),
-                        points_allowed=cast(
-                            "int",
-                            self._safe_int(row_dict.get("PTS_ALLOWED", row_dict.get("OPP_PTS")))
-                            or 0,
-                        ),
-                        off_rating=cast(
-                            "float | None", self._safe_float(row_dict.get("OFF_RATING"))
-                        ),
-                        def_rating=cast(
-                            "float | None", self._safe_float(row_dict.get("DEF_RATING"))
-                        ),
-                        net_rating=cast(
-                            "float | None", self._safe_float(row_dict.get("NET_RATING"))
-                        ),
+                        possessions=self._safe_int(row_dict.get("POSS")) or 0,
+                        points_scored=self._safe_int(row_dict.get("PTS")) or 0,
+                        points_allowed=self._safe_int(
+                            row_dict.get("PTS_ALLOWED", row_dict.get("OPP_PTS"))
+                        )
+                        or 0,
+                        off_rating=self._safe_float(row_dict.get("OFF_RATING")),
+                        def_rating=self._safe_float(row_dict.get("DEF_RATING")),
+                        net_rating=self._safe_float(row_dict.get("NET_RATING")),
                     )
                     validated_lineups.append(validated_lineup)
 

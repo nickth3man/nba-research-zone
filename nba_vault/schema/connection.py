@@ -69,13 +69,12 @@ def init_database(db_path: Path | None = None) -> None:
     from nba_vault.schema.migrations import run_migrations  # noqa: PLC0415
 
     conn = get_db_connection(db_path)
+    conn.close()
     try:
-        run_migrations(conn)
+        run_migrations(db_path)
         logger.info("Database initialized successfully")
     except Exception as e:
         raise RuntimeError(f"Failed to initialize database: {e}") from e
-    finally:
-        conn.close()
 
 
 def close_connection(conn: sqlite3.Connection) -> None:

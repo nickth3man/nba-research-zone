@@ -17,7 +17,10 @@ def temp_db_path():
 
 @pytest.fixture
 def db_connection(temp_db_path):
-    """Create a database connection for testing."""
+    """Create a database connection for testing with schema initialized."""
+    from nba_vault.schema.migrations import run_migrations
+
+    run_migrations(temp_db_path)
     conn = sqlite3.connect(str(temp_db_path))
     conn.row_factory = sqlite3.Row
     yield conn

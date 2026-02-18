@@ -5,7 +5,7 @@ including paint points, fast break points, second chance points, etc.
 """
 
 import sqlite3
-from typing import Any, cast
+from typing import Any
 
 import pydantic
 import structlog
@@ -177,56 +177,29 @@ class TeamOtherStatsIngestor(BaseIngestor):
                             game_id=game_id,
                             team_id=int(row_team_id),
                             season_id=season_id,
-                            points_paint=cast(
-                                "int | None",
-                                self._safe_int(
-                                    row_dict.get("PTS_PAINT", row_dict.get("PTS_IN_PAINT"))
-                                ),
+                            points_paint=self._safe_int(
+                                row_dict.get("PTS_PAINT", row_dict.get("PTS_IN_PAINT"))
                             ),
-                            points_second_chance=cast(
-                                "int | None",
-                                self._safe_int(
-                                    row_dict.get("PTS_2ND_CHANCE", row_dict.get("PTS_2NDCHANCE"))
-                                ),
+                            points_second_chance=self._safe_int(
+                                row_dict.get("PTS_2ND_CHANCE", row_dict.get("PTS_2NDCHANCE"))
                             ),
-                            points_fast_break=cast(
-                                "int | None",
-                                self._safe_int(
-                                    row_dict.get("PTS_FB", row_dict.get("PTS_FAST_BREAK"))
-                                ),
+                            points_fast_break=self._safe_int(
+                                row_dict.get("PTS_FB", row_dict.get("PTS_FAST_BREAK"))
                             ),
-                            largest_lead=cast(
-                                "int | None", self._safe_int(row_dict.get("LARGEST_LEAD"))
+                            largest_lead=self._safe_int(row_dict.get("LARGEST_LEAD")),
+                            lead_changes=self._safe_int(row_dict.get("LEAD_CHANGES")),
+                            times_tied=self._safe_int(row_dict.get("TIMES_TIED")),
+                            team_turnovers=self._safe_int(
+                                row_dict.get("TEAM_TURNOVERS", row_dict.get("TEAM_TO"))
                             ),
-                            lead_changes=cast(
-                                "int | None", self._safe_int(row_dict.get("LEAD_CHANGES"))
+                            total_turnovers=self._safe_int(
+                                row_dict.get("TOT_TO", row_dict.get("TOTAL_TURNOVERS"))
                             ),
-                            times_tied=cast(
-                                "int | None", self._safe_int(row_dict.get("TIMES_TIED"))
+                            team_rebounds=self._safe_int(
+                                row_dict.get("TEAM_REBOUNDS", row_dict.get("TEAM_REB"))
                             ),
-                            team_turnovers=cast(
-                                "int | None",
-                                self._safe_int(
-                                    row_dict.get("TEAM_TURNOVERS", row_dict.get("TEAM_TO"))
-                                ),
-                            ),
-                            total_turnovers=cast(
-                                "int | None",
-                                self._safe_int(
-                                    row_dict.get("TOT_TO", row_dict.get("TOTAL_TURNOVERS"))
-                                ),
-                            ),
-                            team_rebounds=cast(
-                                "int | None",
-                                self._safe_int(
-                                    row_dict.get("TEAM_REBOUNDS", row_dict.get("TEAM_REB"))
-                                ),
-                            ),
-                            points_off_turnovers=cast(
-                                "int | None",
-                                self._safe_int(
-                                    row_dict.get("PTS_OFF_TO", row_dict.get("PTS_OFF_TURNOVERS"))
-                                ),
+                            points_off_turnovers=self._safe_int(
+                                row_dict.get("PTS_OFF_TO", row_dict.get("PTS_OFF_TURNOVERS"))
                             ),
                         )
                         validated_records.append(validated_record)

@@ -210,13 +210,10 @@ CREATE TABLE IF NOT EXISTS team_season_advanced (
 -- ========================================
 
 -- PLAYER GAME LOG ADVANCED - Missing Fields
-ALTER TABLE player_game_log_advanced ADD COLUMN ast_ratio REAL;
-ALTER TABLE player_game_log_advanced ADD COLUMN dreb_pct REAL;
 ALTER TABLE player_game_log_advanced ADD COLUMN tm_tov_pct REAL;
 ALTER TABLE player_game_log_advanced ADD COLUMN usg_pct_precise REAL;
 
 -- PLAYER SEASON STATS - Missing Advanced Metrics
-ALTER TABLE player_season_stats ADD COLUMN per REAL;
 ALTER TABLE player_season_stats ADD COLUMN ows REAL;
 ALTER TABLE player_season_stats ADD COLUMN dws REAL;
 ALTER TABLE player_season_stats ADD COLUMN obpm REAL;
@@ -269,10 +266,10 @@ ALTER TABLE award ADD COLUMN award_rank INTEGER;
 ALTER TABLE award ADD COLUMN voting_share_pct REAL;
 
 -- TRANSACTION - Enhanced Fields
-ALTER TABLE transaction ADD COLUMN trade_details TEXT;
-ALTER TABLE transaction ADD COLUMN players_involved TEXT;
-ALTER TABLE transaction ADD COLUMN draft_picks_involved TEXT;
-ALTER TABLE transaction ADD COLUMN cash_considerations REAL;
+ALTER TABLE "transaction" ADD COLUMN trade_details TEXT;
+ALTER TABLE "transaction" ADD COLUMN players_involved TEXT;
+ALTER TABLE "transaction" ADD COLUMN draft_picks_involved TEXT;
+ALTER TABLE "transaction" ADD COLUMN cash_considerations REAL;
 
 -- PLAYER - Enhanced Fields
 ALTER TABLE player ADD COLUMN high_school TEXT;

@@ -5,7 +5,7 @@ including offensive/defensive ratings, pace, four factors, etc.
 """
 
 import sqlite3
-from typing import Any, cast
+from typing import Any
 
 import pydantic
 import structlog
@@ -172,52 +172,35 @@ class TeamAdvancedStatsIngestor(BaseIngestor):
                     # Only add if we have a team_id
                     if resolved_team_id is not None:
                         validated_record = TeamSeasonAdvancedCreate(
-                            team_id=cast("int", resolved_team_id),
+                            team_id=resolved_team_id,
                             season_id=season_id,
-                            off_rating=cast(
-                                "float | None",
-                                self._safe_float(row_dict.get("OFF_RATING", row_dict.get("ORTG"))),
+                            off_rating=self._safe_float(
+                                row_dict.get("OFF_RATING", row_dict.get("ORTG"))
                             ),
-                            def_rating=cast(
-                                "float | None",
-                                self._safe_float(row_dict.get("DEF_RATING", row_dict.get("DRTG"))),
+                            def_rating=self._safe_float(
+                                row_dict.get("DEF_RATING", row_dict.get("DRTG"))
                             ),
-                            net_rating=cast(
-                                "float | None",
-                                self._safe_float(
-                                    row_dict.get("NET_RATING", row_dict.get("NETRTG"))
-                                ),
+                            net_rating=self._safe_float(
+                                row_dict.get("NET_RATING", row_dict.get("NETRTG"))
                             ),
-                            pace=cast("float | None", self._safe_float(row_dict.get("PACE"))),
-                            effective_fg_pct=cast(
-                                "float | None",
-                                self._safe_float(row_dict.get("EFG_pct", row_dict.get("EFG_PCT"))),
+                            pace=self._safe_float(row_dict.get("PACE")),
+                            effective_fg_pct=self._safe_float(
+                                row_dict.get("EFG_pct", row_dict.get("EFG_PCT"))
                             ),
-                            turnover_pct=cast(
-                                "float | None",
-                                self._safe_float(
-                                    row_dict.get("TM_TOV_pct", row_dict.get("TOV_PCT"))
-                                ),
+                            turnover_pct=self._safe_float(
+                                row_dict.get("TM_TOV_pct", row_dict.get("TOV_PCT"))
                             ),
-                            offensive_rebound_pct=cast(
-                                "float | None",
-                                self._safe_float(
-                                    row_dict.get("OREB_pct", row_dict.get("OREB_PCT"))
-                                ),
+                            offensive_rebound_pct=self._safe_float(
+                                row_dict.get("OREB_pct", row_dict.get("OREB_PCT"))
                             ),
-                            free_throw_rate=cast(
-                                "float | None",
-                                self._safe_float(row_dict.get("FTA_RATE", row_dict.get("FT_RATE"))),
+                            free_throw_rate=self._safe_float(
+                                row_dict.get("FTA_RATE", row_dict.get("FT_RATE"))
                             ),
-                            three_point_rate=cast(
-                                "float | None",
-                                self._safe_float(
-                                    row_dict.get("FG3A_RATE", row_dict.get("THREE_POINT_RATE"))
-                                ),
+                            three_point_rate=self._safe_float(
+                                row_dict.get("FG3A_RATE", row_dict.get("THREE_POINT_RATE"))
                             ),
-                            true_shooting_pct=cast(
-                                "float | None",
-                                self._safe_float(row_dict.get("TS_pct", row_dict.get("TS_PCT"))),
+                            true_shooting_pct=self._safe_float(
+                                row_dict.get("TS_pct", row_dict.get("TS_PCT"))
                             ),
                         )
                         validated_records.append(validated_record)

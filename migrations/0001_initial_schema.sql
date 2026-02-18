@@ -345,7 +345,7 @@ CREATE TABLE IF NOT EXISTS playoff_series (
 );
 
 -- TRANSACTION
-CREATE TABLE IF NOT EXISTS transaction (
+CREATE TABLE IF NOT EXISTS "transaction" (
     transaction_id  TEXT PRIMARY KEY,     -- UUID
     transaction_date TEXT NOT NULL,
     transaction_type TEXT NOT NULL,       -- 'Trade', 'Sign', 'Waive', 'Two-Way', 'Extension'

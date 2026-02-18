@@ -31,7 +31,6 @@ def setup_logging() -> None:
     # Configure processors based on format
     processors: list[Processor] = [
         structlog.contextvars.merge_contextvars,
-        structlog.stdlib.add_logger_name,
         structlog.stdlib.add_log_level,
         structlog.processors.TimeStamper(fmt="iso"),
         structlog.processors.StackInfoRenderer(),
@@ -63,7 +62,7 @@ def get_logger(name: str) -> structlog.stdlib.BoundLogger:
     Returns:
         Configured bound logger.
     """
-    return structlog.get_logger(name)
+    return structlog.get_logger(name).bind(logger=name)
 
 
 def log_context(**kwargs: Any) -> None:

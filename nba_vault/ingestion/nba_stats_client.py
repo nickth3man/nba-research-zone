@@ -62,8 +62,11 @@ class NBAStatsClient:
             import importlib  # noqa: PLC0415
 
             def _load_endpoint(module_path: str, class_name: str) -> Any:
-                mod = importlib.import_module(module_path)
-                return getattr(mod, class_name)
+                try:
+                    mod = importlib.import_module(module_path)
+                    return getattr(mod, class_name, None)
+                except (ImportError, ModuleNotFoundError):
+                    return None
 
             nba_endpoints = importlib.import_module("nba_api.stats.endpoints")
             nba_static = importlib.import_module("nba_api.stats.static")

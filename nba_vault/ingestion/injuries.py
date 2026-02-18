@@ -316,6 +316,10 @@ class InjuryIngestor(BaseIngestor):
 
         # Common body parts
         body_parts = [
+            "acl",
+            "mcl",
+            "pcl",
+            "lcl",
             "knee",
             "ankle",
             "foot",

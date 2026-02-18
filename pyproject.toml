@@ -64,6 +64,9 @@ exclude = [
     "*.egg-info",
     ".migrations-state",
     "venv",
+    ".cursor",
+    ".cline",
+    ".claude",
 ]
 
 [tool.ruff.lint]
@@ -107,9 +110,9 @@ known-first-party = ["nba_vault"]
 # Web scrapers use requests.Session — timeout is set per-call (.get(timeout=30)), not on Session init
 "nba_vault/ingestion/injuries.py" = ["S113"]
 "nba_vault/ingestion/contracts.py" = ["S113"]
-# CLI entrypoint: Typer *requires* function calls in defaults (B008), and
+# CLI package: Typer *requires* function calls in defaults (B008), and
 # uses lazy intra-function imports to avoid circular deps and speed startup (PLC0415)
-"nba_vault/cli.py" = ["S603", "S607", "B008", "PLC0415"]
+"nba_vault/cli/*.py" = ["S603", "S607", "B008", "PLC0415"]
 
 # Ty configuration - Modern type checker by Astral (currently at v0.0.17)
 # See: https://docs.astral.sh/ty/configuration/
