@@ -3,18 +3,26 @@
 This ingestor fetches player injury data from various sources including
 ESPN, NBA.com, and Rotowire. Since there's no official API for injuries,
 we use web scraping with proper rate limiting and error handling.
+
+The ingestor delegates web scraping to specialized scraper classes:
+- ESPNInjuryScraper: Scrapes ESPN NBA injuries page
+- RotowireInjuryScraper: Scrapes Rotowire NBA injuries page
+- Additional scrapers can be added without modifying this ingestor
 """
 
-from datetime import date, datetime
+from datetime import date
 from typing import Any
 
 import pydantic
 import requests
 import structlog
-from bs4 import BeautifulSoup
 
 from nba_vault.ingestion.base import BaseIngestor
 from nba_vault.ingestion.registry import register_ingestor
+from nba_vault.ingestion.scrapers.injury_scrapers import (
+    ESPNInjuryScraper,
+    RotowireInjuryScraper,
+)
 from nba_vault.models.advanced_stats import InjuryCreate
 
 logger = structlog.get_logger(__name__)
@@ -26,9 +34,9 @@ class InjuryIngestor(BaseIngestor):
     Ingestor for player injury data from various sources.
 
     Supports fetching injury data from:
-    - ESPN NBA injuries page
+    - ESPN NBA injuries page (via ESPNInjuryScraper)
     - NBA.com injuries (if available)
-    - Rotowire NBA injuries
+    - Rotowire NBA injuries (via RotowireInjuryScraper)
 
     Injury data includes:
     - Player name and team
@@ -61,6 +69,10 @@ class InjuryIngestor(BaseIngestor):
             }
         )
 
+        # Initialize scrapers
+        self.espn_scraper = ESPNInjuryScraper(self.rate_limiter, self.session)
+        self.rotowire_scraper = RotowireInjuryScraper(self.rate_limiter, self.session)
+
     def fetch(
         self,
         entity_id: str,
@@ -87,9 +99,9 @@ class InjuryIngestor(BaseIngestor):
             self.logger.info("Fetching all injuries", source=source)
 
             if source == "espn":
-                injuries = self._fetch_espn_injuries()
+                injuries = self.espn_scraper.fetch()
             elif source == "rotowire":
-                injuries = self._fetch_rotowire_injuries()
+                injuries = self.rotowire_scraper.fetch()
             elif source == "nba":
                 injuries = self._fetch_nba_injuries()
             else:
@@ -107,9 +119,9 @@ class InjuryIngestor(BaseIngestor):
 
             # Filter injuries by team after fetching all
             if source == "espn":
-                injuries = self._fetch_espn_injuries()
+                injuries = self.espn_scraper.fetch()
             elif source == "rotowire":
-                injuries = self._fetch_rotowire_injuries()
+                injuries = self.rotowire_scraper.fetch()
             else:
                 injuries = []
 
@@ -141,149 +153,33 @@ class InjuryIngestor(BaseIngestor):
         else:
             raise ValueError(f"Invalid entity_id format: {entity_id}")
 
-    def _fetch_espn_injuries(self) -> list[dict[str, Any]]:
+    def _parse_injury_description(self, desc: str | None) -> tuple[str | None, str | None]:
         """
-        Fetch injuries from ESPN NBA injuries page.
+        Parse injury description to extract injury type and body part.
+
+        Delegates to the ESPN scraper's implementation.
+
+        Args:
+            desc: Injury description string.
 
         Returns:
-            List of injury dictionaries.
-
-        Raises:
-            Exception: If fetch fails.
+            Tuple of (injury_type, body_part).
         """
-        url = "https://www.espn.com/nba/injuries"
+        return self.espn_scraper.parse_injury_description(desc)
 
-        self.rate_limiter.acquire()
-
-        try:
-            self.logger.info("Fetching injuries from ESPN", url=url)
-            response = self.session.get(url, timeout=30)
-            response.raise_for_status()
-
-            soup = BeautifulSoup(response.content, "html.parser")
-            injuries = []
-
-            # ESPN injury page structure varies, but typically has tables
-            # Look for injury tables
-            tables = soup.find_all("table")
-            for table in tables:
-                rows = table.find_all("tr")
-                for row in rows[1:]:  # Skip header row
-                    cols = row.find_all("td")
-                    if len(cols) >= 3:
-                        # Extract player info
-                        player_cell = cols[0]
-                        player_name = player_cell.get_text(strip=True)
-
-                        # Extract team
-                        team_cell = cols[1] if len(cols) > 1 else None
-                        team = team_cell.get_text(strip=True) if team_cell else ""
-
-                        # Extract status
-                        status_cell = cols[2] if len(cols) > 2 else None
-                        status = status_cell.get_text(strip=True) if status_cell else ""
-
-                        # Extract injury description
-                        desc_cell = cols[3] if len(cols) > 3 else None
-                        injury_desc = desc_cell.get_text(strip=True) if desc_cell else ""
-
-                        # Parse injury description for type and body part
-                        injury_type, body_part = self._parse_injury_description(injury_desc)
-
-                        # Extract date (if available)
-                        date_cell = cols[4] if len(cols) > 4 else None
-                        injury_date_str = date_cell.get_text(strip=True) if date_cell else ""
-                        injury_date = self._parse_date(injury_date_str)
-
-                        injuries.append(
-                            {
-                                "player_name": player_name,
-                                "team": team,
-                                "status": status,
-                                "injury_type": injury_type,
-                                "body_part": body_part,
-                                "injury_date": injury_date,
-                                "notes": injury_desc,
-                            }
-                        )
-
-            self.logger.info("Fetched injuries from ESPN", count=len(injuries))
-            return injuries
-
-        except Exception as e:
-            self.logger.error("Failed to fetch ESPN injuries", error=str(e))
-            raise
-
-    def _fetch_rotowire_injuries(self) -> list[dict[str, Any]]:
+    def _parse_date(self, date_str: str | None) -> date | None:
         """
-        Fetch injuries from Rotowire NBA injuries page.
+        Parse date string into date object.
+
+        Delegates to the ESPN scraper's implementation.
+
+        Args:
+            date_str: Date string in various formats.
 
         Returns:
-            List of injury dictionaries.
-
-        Raises:
-            Exception: If fetch fails.
+            Date object or None if parsing fails.
         """
-        url = "https://www.rotowire.com/basketball/nba-injuries.php"
-
-        self.rate_limiter.acquire()
-
-        try:
-            self.logger.info("Fetching injuries from Rotowire", url=url)
-            response = self.session.get(url, timeout=30)
-            response.raise_for_status()
-
-            soup = BeautifulSoup(response.content, "html.parser")
-            injuries = []
-
-            # Rotowire injury page structure
-            # Look for injury listings
-            injury_divs = soup.find_all("div", class_="lineup")
-            for div in injury_divs:
-                # Extract team
-                team_header = div.find("span", class_="team-name")
-                if not team_header:
-                    continue
-                team = team_header.get_text(strip=True)
-
-                # Extract player rows
-                player_rows = div.find_all("div", class_="player")
-                for row in player_rows:
-                    # Extract player name
-                    player_link = row.find("a", class_="player-name")
-                    if not player_link:
-                        continue
-                    player_name = player_link.get_text(strip=True)
-
-                    # Extract status
-                    status_span = row.find("span", class_="status")
-                    status = status_span.get_text(strip=True) if status_span else ""
-
-                    # Extract injury description
-                    desc_div = row.find("div", class_="news")
-                    injury_desc = desc_div.get_text(strip=True) if desc_div else ""
-
-                    # Parse injury description
-                    injury_type, body_part = self._parse_injury_description(injury_desc)
-
-                    injuries.append(
-                        {
-                            "player_name": player_name,
-                            "team": team,
-                            "status": status,
-                            "injury_type": injury_type,
-                            "body_part": body_part,
-                            "injury_date": date.today(),  # Rotowire doesn't always show date
-                            "notes": injury_desc,
-                        }
-                    )
-
-            self.logger.info("Fetched injuries from Rotowire", count=len(injuries))
-            return injuries
-
-        except Exception as e:
-            self.logger.error("Failed to fetch Rotowire injuries", error=str(e))
-            raise
+        return self.espn_scraper.parse_date(date_str)
 
     def _fetch_nba_injuries(self) -> list[dict[str, Any]]:
         """
@@ -298,121 +194,6 @@ class InjuryIngestor(BaseIngestor):
         # Placeholder for future NBA.com injury integration
         self.logger.warning("NBA.com injury fetch not yet implemented")
         return []
-
-    def _parse_injury_description(self, desc: str) -> tuple[str | None, str | None]:
-        """
-        Parse injury description to extract injury type and body part.
-
-        Args:
-            desc: Injury description string.
-
-        Returns:
-            Tuple of (injury_type, body_part).
-        """
-        if not desc:
-            return None, None
-
-        desc_lower = desc.lower()
-
-        # Common body parts
-        body_parts = [
-            "acl",
-            "mcl",
-            "pcl",
-            "lcl",
-            "knee",
-            "ankle",
-            "foot",
-            "heel",
-            "toe",
-            "hip",
-            "groin",
-            "thigh",
-            "hamstring",
-            "quad",
-            "calf",
-            "shin",
-            "achilles",
-            "back",
-            "spine",
-            "shoulder",
-            "elbow",
-            "wrist",
-            "hand",
-            "finger",
-            "thumb",
-            "head",
-            "neck",
-            "face",
-            "eye",
-            "nose",
-            "concussion",
-            "chest",
-            "rib",
-        ]
-
-        # Common injury types
-        injury_types = [
-            "strain",
-            "sprain",
-            "fracture",
-            "break",
-            "tear",
-            "rupture",
-            "contusion",
-            "bruise",
-            "soreness",
-            "inflammation",
-            "tendinitis",
-            "bursitis",
-            "dislocation",
-            "subluxation",
-            "concussion",
-        ]
-
-        body_part = None
-        for bp in body_parts:
-            if bp in desc_lower:
-                body_part = bp
-                break
-
-        injury_type = None
-        for it in injury_types:
-            if it in desc_lower:
-                injury_type = it
-                break
-
-        return injury_type, body_part
-
-    def _parse_date(self, date_str: str) -> date | None:
-        """
-        Parse date string into date object.
-
-        Args:
-            date_str: Date string in various formats.
-
-        Returns:
-            Date object or None if parsing fails.
-        """
-        if not date_str:
-            return None
-
-        # Try common date formats
-        formats = [
-            "%Y-%m-%d",
-            "%m/%d/%Y",
-            "%m/%d/%y",
-            "%B %d, %Y",
-            "%b %d, %Y",
-        ]
-
-        for fmt in formats:
-            try:
-                return datetime.strptime(date_str, fmt).date()
-            except ValueError:
-                continue
-
-        return None
 
     def validate(self, raw: dict[str, Any]) -> list[pydantic.BaseModel]:
         """

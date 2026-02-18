@@ -18,7 +18,7 @@ SELECT
     -- Get team record for the season
     (
         SELECT COUNT(*)
-        FROM sqlite_db.game g
+        FROM sqlite_db.game AS g
         WHERE (g.home_team_id = t.team_id OR g.away_team_id = t.team_id)
             AND g.season_id = t.season_id
             AND g.game_type = 'Regular Season'
@@ -26,7 +26,7 @@ SELECT
     ) as games_played,
     (
         SELECT COUNT(*)
-        FROM sqlite_db.game g
+        FROM sqlite_db.game AS g
         WHERE g.winner_team_id = t.team_id
             AND g.season_id = t.season_id
             AND g.game_type = 'Regular Season'
@@ -34,12 +34,12 @@ SELECT
     -- Playoff appearances
     (
         SELECT COUNT(*) > 0
-        FROM sqlite_db.game g
+        FROM sqlite_db.game AS g
         WHERE (g.home_team_id = t.team_id OR g.away_team_id = t.team_id)
             AND g.season_id = t.season_id
             AND g.game_type = 'Playoffs'
     ) as made_playoffs
-FROM sqlite_db.franchise f
-JOIN sqlite_db.team t ON f.franchise_id = t.franchise_id
-JOIN sqlite_db.season s ON t.season_id = s.season_id
+FROM sqlite_db.franchise AS f
+INNER JOIN sqlite_db.team AS t ON f.franchise_id = t.franchise_id
+INNER JOIN sqlite_db.season AS s ON t.season_id = s.season_id
 ORDER BY f.franchise_id, s.season_id

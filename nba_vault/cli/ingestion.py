@@ -1,5 +1,7 @@
 """Ingestion commands: ingest, ingest-players."""
 
+from datetime import datetime
+
 import structlog
 import typer
 
@@ -63,14 +65,80 @@ def ingest(
                 f"Starting full historical backfill from {start_season} to {end_season} "
                 f"using {workers} worker(s)..."
             )
-            # TODO: Implement full backfill logic
-            typer.echo("[FAIL] Full backfill not yet implemented", err=True)
-            raise typer.Exit(code=1)
+
+            # Basic backfill implementation
+            from nba_vault.ingestion import create_ingestor
+
+            conn = get_db_connection()
+
+            try:
+                player_ingestor = create_ingestor("players")
+                if player_ingestor is None:
+                    typer.echo("[FAIL] Players ingestor not found", err=True)
+                    raise typer.Exit(code=1)
+
+                seasons = range(end_season, start_season + 1)  # Backward from recent to old
+
+                total_players = 0
+                for season_year in seasons:
+                    typer.echo(f"Ingesting players from {season_year - 1}-{season_year}...")
+                    result = player_ingestor.ingest("season", conn, season_end_year=season_year)
+                    if result["status"] == "SUCCESS":
+                        total_players += result.get("rows_affected", 0)
+
+                typer.echo(f"[OK] Backfill completed: {total_players:,} total players ingested")
+
+            except Exception as e:
+                logger.error("Backfill failed", error=str(e))
+                typer.echo(f"[FAIL] Backfill failed: {e}", err=True)
+                raise typer.Exit(code=1) from e
+            finally:
+                conn.close()
+
         else:
             typer.echo("Starting incremental update...")
-            # TODO: Implement incremental update logic
-            typer.echo("[FAIL] Incremental update not yet implemented", err=True)
-            raise typer.Exit(code=1)
+
+            # Incremental: fetch recent data from current season
+            current_year = datetime.now().year
+            current_month = datetime.now().month
+
+            # Determine current season (NBA season spans calendar years)
+            if current_month >= 10:
+                season_end_year = current_year + 1
+            else:
+                season_end_year = current_year
+
+            from nba_vault.ingestion import create_ingestor
+
+            conn = get_db_connection()
+
+            try:
+                player_ingestor = create_ingestor("players")
+                if player_ingestor is None:
+                    typer.echo("[FAIL] Players ingestor not found", err=True)
+                    raise typer.Exit(code=1)
+
+                typer.echo(f"Ingesting players from {season_end_year - 1}-{season_end_year}...")
+
+                result = player_ingestor.ingest("season", conn, season_end_year=season_end_year)
+
+                if result["status"] == "SUCCESS":
+                    typer.echo(
+                        f"[OK] Incremental update completed: {result.get('rows_affected', 0)} players"
+                    )
+                else:
+                    typer.echo(
+                        f"[FAIL] Incremental update failed: {result.get('error_message', 'Unknown error')}",
+                        err=True,
+                    )
+                    raise typer.Exit(code=1)
+
+            except Exception as e:
+                logger.error("Incremental update failed", error=str(e))
+                typer.echo(f"[FAIL] Incremental update failed: {e}", err=True)
+                raise typer.Exit(code=1) from e
+            finally:
+                conn.close()
 
     except Exception as e:
         logger.error("Ingestion failed", error=str(e))

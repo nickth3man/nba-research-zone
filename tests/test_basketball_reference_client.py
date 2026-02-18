@@ -181,7 +181,7 @@ def test_get_players_attribute_error_skips_player(tmp_path):
     bad_player = MagicMock()
     bad_player.slug = "bad01"
     # Make accessing any attribute raise AttributeError
-    type(bad_player).__getattr__ = MagicMock(side_effect=AttributeError("no attr"))
+    type(bad_player).__getattr__ = MagicMock(side_effect=AttributeError("no attr"))  # type: ignore[assignment]
 
     good_player = _make_player_obj()
 

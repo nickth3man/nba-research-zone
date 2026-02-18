@@ -1,0 +1,10 @@
+{
+  "league": [
+    {
+      "league_id": "NBA",
+      "league_name": "National Basketball Association",
+      "founded_year": 1946,
+      "folded_year": null
+    }
+  ]
+}

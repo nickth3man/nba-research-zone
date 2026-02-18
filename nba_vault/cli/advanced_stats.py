@@ -46,6 +46,12 @@ def ingest_tracking(
     """
     from nba_vault.ingestion import create_ingestor
 
+    # Early return: validate inputs
+    if not player_id and not team_id:
+        typer.echo("[FAIL] Must specify --player-id or --team-id", err=True)
+        raise typer.Exit(code=1)
+
+    # Early return: establish connection
     try:
         conn = get_db_connection()
     except RuntimeError as e:
@@ -55,33 +61,26 @@ def ingest_tracking(
 
     try:
         ingestor = create_ingestor("player_tracking")
-
         if ingestor is None:
             typer.echo("[FAIL] Player tracking ingestor not found", err=True)
             raise typer.Exit(code=1)
 
-        if player_id:
-            typer.echo(f"Ingesting tracking data for player {player_id}...")
-            entity_id = str(player_id)
-        elif team_id:
-            typer.echo(f"Ingesting tracking data for team {team_id}...")
-            entity_id = f"team:{team_id}"
-        else:
-            typer.echo("[FAIL] Must specify --player-id or --team-id", err=True)
-            raise typer.Exit(code=1)
+        # Flatten: direct entity ID determination
+        entity_id = str(player_id) if player_id else f"team:{team_id}"
+        typer.echo(f"Ingesting tracking data for {entity_id}...")
 
         result = ingestor.ingest(entity_id, conn, season=season, season_type=season_type)
 
-        if result.get("status") == "SUCCESS":
+        # Flatten: direct result handling
+        if result["status"] != "SUCCESS":
             typer.echo(
-                f"[OK] Successfully ingested {result.get('rows_affected', 0)} tracking record(s)"
-            )
-        else:
-            typer.echo(
-                f"[FAIL] Ingestion failed: {result.get('error_message', 'Unknown error')}",
-                err=True,
+                f"[FAIL] Ingestion failed: {result.get('error_message', 'Unknown error')}", err=True
             )
             raise typer.Exit(code=1)
+
+        typer.echo(
+            f"[OK] Successfully ingested {result.get('rows_affected', 0)} tracking record(s)"
+        )
 
     except Exception as e:
         logger.error("Tracking ingestion failed", error=str(e))
@@ -124,6 +123,7 @@ def ingest_lineups(
     """
     from nba_vault.ingestion import create_ingestor
 
+    # Early return: establish connection
     try:
         conn = get_db_connection()
     except RuntimeError as e:
@@ -133,32 +133,28 @@ def ingest_lineups(
 
     try:
         ingestor = create_ingestor("lineups")
-
         if ingestor is None:
             typer.echo("[FAIL] Lineups ingestor not found", err=True)
             raise typer.Exit(code=1)
 
-        if scope == "league":
+        # Flatten: direct entity ID determination
+        if scope == "league" or not (scope.startswith("team:") or scope.startswith("game:")):
             entity_id = "league"
-        elif scope.startswith("team:") or scope.startswith("game:"):
-            entity_id = scope
-        elif team_id:
-            entity_id = str(team_id)
         else:
-            entity_id = "league"
+            entity_id = scope
 
         typer.echo(f"Ingesting lineup data for {entity_id}...")
 
         result = ingestor.ingest(entity_id, conn, season=season, season_type=season_type)
 
-        if result.get("status") == "SUCCESS":
-            typer.echo(f"[OK] Successfully ingested {result.get('rows_affected', 0)} lineup(s)")
-        else:
+        # Flatten: direct result handling
+        if result["status"] != "SUCCESS":
             typer.echo(
-                f"[FAIL] Ingestion failed: {result.get('error_message', 'Unknown error')}",
-                err=True,
+                f"[FAIL] Ingestion failed: {result.get('error_message', 'Unknown error')}", err=True
             )
             raise typer.Exit(code=1)
+
+        typer.echo(f"[OK] Successfully ingested {result.get('rows_affected', 0)} lineup(s)")
 
     except Exception as e:
         logger.error("Lineup ingestion failed", error=str(e))
@@ -197,6 +193,12 @@ def ingest_team_other_stats(
     """
     from nba_vault.ingestion import create_ingestor
 
+    # Early return: validate inputs
+    if not game_id and not team_id:
+        typer.echo("[FAIL] Must specify --game-id or --team-id", err=True)
+        raise typer.Exit(code=1)
+
+    # Early return: establish connection
     try:
         conn = get_db_connection()
     except RuntimeError as e:
@@ -206,33 +208,26 @@ def ingest_team_other_stats(
 
     try:
         ingestor = create_ingestor("team_other_stats")
-
         if ingestor is None:
             typer.echo("[FAIL] Team other stats ingestor not found", err=True)
             raise typer.Exit(code=1)
 
-        if game_id:
-            typer.echo(f"Ingesting other stats for game {game_id}...")
-            entity_id = game_id
-        elif team_id:
-            typer.echo(f"Ingesting other stats for team {team_id}...")
-            entity_id = f"team:{team_id}:{season}"
-        else:
-            typer.echo("[FAIL] Must specify --game-id or --team-id", err=True)
-            raise typer.Exit(code=1)
+        # Flatten: direct entity ID determination
+        entity_id = game_id if game_id else f"team:{team_id}:{season}"
+        typer.echo(f"Ingesting other stats for {entity_id}...")
 
         result = ingestor.ingest(entity_id, conn, season=season)
 
-        if result.get("status") == "SUCCESS":
+        # Flatten: direct result handling
+        if result["status"] != "SUCCESS":
             typer.echo(
-                f"[OK] Successfully ingested {result.get('rows_affected', 0)} other stats record(s)"
-            )
-        else:
-            typer.echo(
-                f"[FAIL] Ingestion failed: {result.get('error_message', 'Unknown error')}",
-                err=True,
+                f"[FAIL] Ingestion failed: {result.get('error_message', 'Unknown error')}", err=True
             )
             raise typer.Exit(code=1)
+
+        typer.echo(
+            f"[OK] Successfully ingested {result.get('rows_affected', 0)} other stats record(s)"
+        )
 
     except Exception as e:
         logger.error("Team other stats ingestion failed", error=str(e))
@@ -280,6 +275,7 @@ def ingest_team_advanced_stats(
     """
     from nba_vault.ingestion import create_ingestor
 
+    # Early return: establish connection
     try:
         conn = get_db_connection()
     except RuntimeError as e:
@@ -289,34 +285,28 @@ def ingest_team_advanced_stats(
 
     try:
         ingestor = create_ingestor("team_advanced_stats")
-
         if ingestor is None:
             typer.echo("[FAIL] Team advanced stats ingestor not found", err=True)
             raise typer.Exit(code=1)
 
-        if scope == "league":
-            entity_id = "league"
-        elif team_id:
-            entity_id = str(team_id)
-        else:
-            entity_id = "league"
-
+        # Flatten: direct entity ID determination
+        entity_id = "league" if scope == "league" else str(team_id) if team_id else "league"
         typer.echo(f"Ingesting advanced stats for {entity_id}...")
 
         result = ingestor.ingest(
             entity_id, conn, season=season, season_type=season_type, measure_type=measure_type
         )
 
-        if result.get("status") == "SUCCESS":
+        # Flatten: direct result handling
+        if result["status"] != "SUCCESS":
             typer.echo(
-                f"[OK] Successfully ingested {result.get('rows_affected', 0)} advanced stats record(s)"
-            )
-        else:
-            typer.echo(
-                f"[FAIL] Ingestion failed: {result.get('error_message', 'Unknown error')}",
-                err=True,
+                f"[FAIL] Ingestion failed: {result.get('error_message', 'Unknown error')}", err=True
             )
             raise typer.Exit(code=1)
+
+        typer.echo(
+            f"[OK] Successfully ingested {result.get('rows_affected', 0)} advanced stats record(s)"
+        )
 
     except Exception as e:
         logger.error("Team advanced stats ingestion failed", error=str(e))

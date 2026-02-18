@@ -34,20 +34,19 @@ WITH lineup_stats AS (
         CASE
             WHEN l.possessions > 0 THEN
                 ((l.points_scored - l.points_allowed) * 100.0 / l.possessions)
-            ELSE NULL
         END as calculated_net_rating,
         -- Win percentage (positive plus-minus as proxy)
-        CAST(SUM(CASE WHEN lgl.plus_minus > 0 THEN 1 ELSE 0 END) AS FLOAT) /
-            NULLIF(COUNT(DISTINCT lgl.game_id), 0) as win_pct
-    FROM sqlite_db.lineup l
-    JOIN sqlite_db.team t ON l.team_id = t.team_id
-    JOIN sqlite_db.season s ON l.season_id = s.season_id
-    LEFT JOIN sqlite_db.lineup_game_log lgl ON l.lineup_id = lgl.lineup_id
-    LEFT JOIN sqlite_db.player p1 ON l.player_1_id = p1.player_id
-    LEFT JOIN sqlite_db.player p2 ON l.player_2_id = p2.player_id
-    LEFT JOIN sqlite_db.player p3 ON l.player_3_id = p3.player_id
-    LEFT JOIN sqlite_db.player p4 ON l.player_4_id = p4.player_id
-    LEFT JOIN sqlite_db.player p5 ON l.player_5_id = p5.player_id
+        CAST(SUM(CASE WHEN lgl.plus_minus > 0 THEN 1 ELSE 0 END) AS FLOAT)
+            / NULLIF(COUNT(DISTINCT lgl.game_id), 0) as win_pct
+    FROM sqlite_db.lineup AS l
+    INNER JOIN sqlite_db.team AS t ON l.team_id = t.team_id
+    INNER JOIN sqlite_db.season AS s ON l.season_id = s.season_id
+    LEFT JOIN sqlite_db.lineup_game_log AS lgl ON l.lineup_id = lgl.lineup_id
+    LEFT JOIN sqlite_db.player AS p1 ON l.player_1_id = p1.player_id
+    LEFT JOIN sqlite_db.player AS p2 ON l.player_2_id = p2.player_id
+    LEFT JOIN sqlite_db.player AS p3 ON l.player_3_id = p3.player_id
+    LEFT JOIN sqlite_db.player AS p4 ON l.player_4_id = p4.player_id
+    LEFT JOIN sqlite_db.player AS p5 ON l.player_5_id = p5.player_id
     GROUP BY
         l.lineup_id, l.season_id, s.season_label, l.team_id, t.team_name,
         l.player_1_id, l.player_2_id, l.player_3_id, l.player_4_id, l.player_5_id,
@@ -55,8 +54,8 @@ WITH lineup_stats AS (
         l.minutes_played, l.possessions, l.points_scored, l.points_allowed,
         l.off_rating, l.def_rating, l.net_rating
 )
-SELECT
-    *
+
+SELECT *
 FROM lineup_stats
 WHERE total_minutes >= 10  -- Only show lineups with significant minutes
 ORDER BY calculated_net_rating DESC

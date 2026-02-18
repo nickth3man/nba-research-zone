@@ -147,31 +147,26 @@ def test_franchise_model():
     from nba_vault.models.franchise import Franchise, FranchiseCreate
 
     franchise = FranchiseCreate(
-        franchise_id="LAL",
-        full_name="Los Angeles Lakers",
+        franchise_id=1,
+        current_team_name="Los Angeles Lakers",
+        current_city="Los Angeles",
         abbreviation="LAL",
-        city="Los Angeles",
-        nickname="Lakers",
         league_id="NBA",
         founded_year=1947,
-        folded_year=None,
-        is_active=True,
     )
-    assert franchise.franchise_id == "LAL"
-    assert franchise.folded_year is None
+    assert franchise.franchise_id == 1
 
     full = Franchise.model_validate(
         {
-            "franchise_id": "BOS",
-            "full_name": "Boston Celtics",
+            "franchise_id": 2,
+            "current_team_name": "Boston Celtics",
+            "current_city": "Boston",
             "abbreviation": "BOS",
-            "city": "Boston",
-            "nickname": "Celtics",
             "league_id": "NBA",
             "founded_year": 1946,
         }
     )
-    assert full.franchise_id == "BOS"
+    assert full.franchise_id == 2
 
 
 def test_official_model():
@@ -203,10 +198,7 @@ def test_season_model():
     season = SeasonCreate(
         season_id=2024,
         league_id="NBA",
-        season_name="2023-24",
-        season_type="Regular Season",
-        start_date="2023-10-24",
-        end_date="2024-04-14",
+        season_label="2023-24",
     )
     assert season.season_id == 2024
     assert season.league_id == "NBA"
@@ -215,7 +207,7 @@ def test_season_model():
         {
             "season_id": 2023,
             "league_id": "NBA",
-            "season_name": "2022-23",
+            "season_label": "2022-23",
         }
     )
     assert full.season_id == 2023
@@ -226,13 +218,13 @@ def test_team_model():
 
     team = TeamCreate(
         team_id=1610612747,
-        franchise_id="LAL",
+        franchise_id=1,
         season_id=2024,
-        full_name="Los Angeles Lakers",
-        abbreviation="LAL",
+        team_name="Los Angeles Lakers",
         city="Los Angeles",
-        nickname="Lakers",
-        league_id="NBA",
+        abbreviation="LAL",
+        conference="Western",
+        division="Pacific",
     )
     assert team.team_id == 1610612747
     assert team.abbreviation == "LAL"
@@ -240,13 +232,13 @@ def test_team_model():
     full = Team.model_validate(
         {
             "team_id": 1610612738,
-            "franchise_id": "BOS",
+            "franchise_id": 2,
             "season_id": 2024,
-            "full_name": "Boston Celtics",
-            "abbreviation": "BOS",
+            "team_name": "Boston Celtics",
             "city": "Boston",
-            "nickname": "Celtics",
-            "league_id": "NBA",
+            "abbreviation": "BOS",
+            "conference": "Eastern",
+            "division": "Atlantic",
         }
     )
     assert full.team_id == 1610612738

@@ -1,0 +1,676 @@
+"""Adapter pattern for NBA.com Stats API.
+
+This module provides an abstraction layer over the nba_api library,
+making it easy to swap implementations for testing or future changes.
+"""
+
+from abc import ABC, abstractmethod
+from typing import Any
+
+import structlog
+
+logger = structlog.get_logger(__name__)
+
+
+class RateLimitError(Exception):
+    """Raised when the NBA.com API responds with HTTP 429 (Too Many Requests)."""
+
+
+class NBAStatsAdapter(ABC):
+    """
+    Abstract base class for NBA.com Stats API adapters.
+
+    This interface defines the contract for all NBA Stats API adapters.
+    Implementations can wrap different libraries (nba_api, direct HTTP, etc.)
+    while providing a consistent interface to the client.
+
+    The adapter pattern provides several benefits:
+    - Decouples client code from specific library implementations
+    - Makes testing easier with mock adapters
+    - Allows swapping implementations without changing client code
+    - Isolates library-specific quirks and error handling
+    """
+
+    @abstractmethod
+    def get_player_tracking(
+        self,
+        player_id: int,
+        season: str,
+        season_type: str = "Regular Season",
+        measure_type: str = "Base",
+        per_mode: str = "PerGame",
+        plus_minus: str = "N",
+        pace_adjust: str = "N",
+        rank: str = "N",
+        outcome: str = "",
+        location: str = "",
+        month: int = 0,
+        season_segment: str = "",
+        date_from: str = "",
+        date_to: str = "",
+        opponent_team_id: int = 0,
+        vs_conference: str = "",
+        vs_division: str = "",
+        game_segment: str = "",
+        period: int = 0,
+        shot_clock_range: str = "",
+        last_n_games: int = 0,
+    ) -> dict[str, Any]:
+        """
+        Get player tracking data (speed, distance, touches, drives).
+
+        Args:
+            player_id: NBA player ID.
+            season: Season in format "YYYY-YY" (e.g., "2023-24").
+            season_type: "Regular Season", "Playoffs", or "Pre Season".
+            measure_type: "Base", "Advanced", etc.
+            per_mode: "PerGame", "Totals", "Per36", etc.
+            Additional filters: see NBA.com API documentation.
+
+        Returns:
+            Dictionary with tracking stats. Expected format:
+            {
+                "PlayerTracking": {
+                    "data": [[row1], [row2], ...],
+                    "headers": ["COL1", "COL2", ...]
+                }
+            }
+
+        Raises:
+            RateLimitError: If API rate limit is exceeded.
+            TimeoutError: If request times out.
+            ConnectionError: If connection fails.
+            Exception: For other errors.
+        """
+        pass
+
+    @abstractmethod
+    def get_team_lineups(
+        self,
+        team_id: int,
+        season: str,
+        season_type: str = "Regular Season",
+        measure_type: str = "Base",
+        per_mode: str = "PerGame",
+        plus_minus: str = "N",
+        pace_adjust: str = "N",
+        rank: str = "N",
+        outcome: str = "",
+        location: str = "",
+        month: int = 0,
+        season_segment: str = "",
+        date_from: str = "",
+        date_to: str = "",
+        opponent_team_id: int = 0,
+        vs_conference: str = "",
+        vs_division: str = "",
+        game_segment: str = "",
+        period: int = 0,
+        shot_clock_range: str = "",
+        last_n_games: int = 0,
+        group_quantity: int = 5,
+    ) -> dict[str, Any]:
+        """
+        Get lineup data for a team.
+
+        Args:
+            team_id: NBA team ID.
+            season: Season in format "YYYY-YY" (e.g., "2023-24").
+            season_type: "Regular Season", "Playoffs", or "Pre Season".
+            group_quantity: Number of players in lineup (default 5).
+            Additional filters: see NBA.com API documentation.
+
+        Returns:
+            Dictionary with lineup stats. Expected format:
+            {
+                "Lineups": {
+                    "data": [[row1], [row2], ...],
+                    "headers": ["COL1", "COL2", ...]
+                }
+            }
+
+        Raises:
+            RateLimitError: If API rate limit is exceeded.
+            TimeoutError: If request times out.
+            ConnectionError: If connection fails.
+            Exception: For other errors.
+        """
+        pass
+
+    @abstractmethod
+    def get_all_lineups(
+        self,
+        season: str,
+        season_type: str = "Regular Season",
+        measure_type: str = "Base",
+        per_mode: str = "Totals",
+        plus_minus: str = "N",
+        pace_adjust: str = "N",
+        rank: str = "N",
+        outcome: str = "",
+        location: str = "",
+        month: int = 0,
+        season_segment: str = "",
+        date_from: str = "",
+        date_to: str = "",
+        opponent_team_id: int = 0,
+        vs_conference: str = "",
+        vs_division: str = "",
+        game_segment: str = "",
+        period: int = 0,
+        shot_clock_range: str = "",
+        last_n_games: int = 0,
+        group_quantity: int = 5,
+    ) -> dict[str, Any]:
+        """
+        Get all lineups across the league.
+
+        Args:
+            season: Season in format "YYYY-YY" (e.g., "2023-24").
+            season_type: "Regular Season", "Playoffs", or "Pre Season".
+            group_quantity: Number of players in lineup (default 5).
+            Additional filters: see NBA.com API documentation.
+
+        Returns:
+            Dictionary with all lineup stats. Expected format:
+            {
+                "Lineups": {
+                    "data": [[row1], [row2], ...],
+                    "headers": ["COL1", "COL2", ...]
+                }
+            }
+
+        Raises:
+            RateLimitError: If API rate limit is exceeded.
+            TimeoutError: If request times out.
+            ConnectionError: If connection fails.
+            Exception: For other errors.
+        """
+        pass
+
+    @abstractmethod
+    def get_box_score_summary(
+        self,
+        game_id: str,
+    ) -> dict[str, Any]:
+        """
+        Get box score summary for a game (includes other stats).
+
+        Args:
+            game_id: 10-character NBA.com game ID.
+
+        Returns:
+            Dictionary with box score summary including:
+            - Game info
+            - Line scores
+            - Other stats (paint points, fast break, etc.)
+            - Officials
+
+        Raises:
+            RateLimitError: If API rate limit is exceeded.
+            TimeoutError: If request times out.
+            ConnectionError: If connection fails.
+            Exception: For other errors.
+        """
+        pass
+
+    @abstractmethod
+    def get_team_advanced_stats(
+        self,
+        team_id: int,
+        season: str,
+        season_type: str = "Regular Season",
+        measure_type: str = "Advanced",
+        per_mode: str = "PerGame",
+        plus_minus: str = "N",
+        pace_adjust: str = "N",
+        rank: str = "N",
+        outcome: str = "",
+        location: str = "",
+        month: int = 0,
+        season_segment: str = "",
+        date_from: str = "",
+        date_to: str = "",
+        opponent_team_id: int = 0,
+        vs_conference: str = "",
+        vs_division: str = "",
+        game_segment: str = "",
+        period: int = 0,
+        shot_clock_range: str = "",
+        last_n_games: int = 0,
+    ) -> dict[str, Any]:
+        """
+        Get advanced team stats.
+
+        Args:
+            team_id: NBA team ID.
+            season: Season in format "YYYY-YY" (e.g., "2023-24").
+            measure_type: "Base", "Advanced", "Four Factors", etc.
+            Additional filters: see NBA.com API documentation.
+
+        Returns:
+            Dictionary with team advanced stats. Expected format:
+            {
+                "TeamStats": {
+                    "data": [[row1], [row2], ...],
+                    "headers": ["COL1", "COL2", ...]
+                }
+            }
+
+        Raises:
+            RateLimitError: If API rate limit is exceeded.
+            TimeoutError: If request times out.
+            ConnectionError: If connection fails.
+            Exception: For other errors.
+        """
+        pass
+
+    @abstractmethod
+    def get_team_id_by_abbreviation(self, abbreviation: str) -> int | None:
+        """
+        Get NBA team ID from abbreviation.
+
+        Args:
+            abbreviation: 3-letter team abbreviation (e.g., "LAL").
+
+        Returns:
+            Team ID if found, None otherwise.
+        """
+        pass
+
+    @abstractmethod
+    def get_player_id_by_name(self, full_name: str) -> int | None:
+        """
+        Get NBA player ID from full name.
+
+        Args:
+            full_name: Player's full name (e.g., "LeBron James").
+
+        Returns:
+            Player ID if found, None otherwise.
+        """
+        pass
+
+
+class NbaApiAdapter(NBAStatsAdapter):
+    """
+    Adapter implementation using the nba_api library.
+
+    This adapter wraps the nba_api library, which is an unofficial
+    Python wrapper around NBA.com's Stats API. The library is not
+    officially documented and may change without notice.
+
+    The adapter handles:
+    - Dynamic endpoint loading with fallback paths
+    - nba_api-specific response format (data_sets dict)
+    - Error detection and translation to standard exceptions
+    - Timeout and connection error handling
+    - Rate limit detection (HTTP 429)
+
+    All nba_api-specific quirks are isolated within this adapter.
+    """
+
+    def __init__(self, timeout: int = 30):
+        """
+        Initialize the nba_api adapter.
+
+        Args:
+            timeout: Request timeout in seconds.
+
+        Raises:
+            ImportError: If nba_api is not installed.
+        """
+        self.timeout = timeout
+
+        try:
+            import importlib  # noqa: PLC0415
+
+            def _load_endpoint(module_path: str, class_name: str) -> Any:
+                """Load an endpoint class with fallback to direct import."""
+                try:
+                    mod = importlib.import_module(module_path)
+                    return getattr(mod, class_name, None)
+                except (ImportError, ModuleNotFoundError):
+                    return None
+
+            nba_endpoints = importlib.import_module("nba_api.stats.endpoints")
+            nba_static = importlib.import_module("nba_api.stats.static")
+
+            # Dynamic endpoint loading with multiple fallback paths
+            # This handles different nba_api versions and installation methods
+            self.endpoints: dict[str, Any] = {
+                "leaguedashplayerstats": getattr(nba_endpoints, "LeagueDashPlayerStats", None)
+                or _load_endpoint(
+                    "nba_api.stats.endpoints.leaguedashplayerstats", "LeagueDashPlayerStats"
+                ),
+                "leaguedashteamstats": getattr(nba_endpoints, "LeagueDashTeamStats", None)
+                or _load_endpoint(
+                    "nba_api.stats.endpoints.leaguedashteamstats", "LeagueDashTeamStats"
+                ),
+                "playerdashptstats": getattr(nba_endpoints, "PlayerDashPtStats", None)
+                or _load_endpoint("nba_api.stats.endpoints.playerdashptstats", "PlayerDashPtStats"),
+                "teamdashlineups": getattr(nba_endpoints, "TeamDashLineups", None)
+                or _load_endpoint("nba_api.stats.endpoints.teamdashlineups", "TeamDashLineups"),
+                "boxscoresummaryv2": getattr(nba_endpoints, "BoxScoreSummaryV2", None)
+                or _load_endpoint("nba_api.stats.endpoints.boxscoresummaryv2", "BoxScoreSummaryV2"),
+                "leaguedashlineups": getattr(nba_endpoints, "LeagueDashLineups", None)
+                or _load_endpoint("nba_api.stats.endpoints.leaguedashlineups", "LeagueDashLineups"),
+                "teamyearoveryearstats": getattr(nba_endpoints, "TeamYearOverYearStats", None)
+                or _load_endpoint(
+                    "nba_api.stats.endpoints.teamyearoveryearstats", "TeamYearOverYearStats"
+                ),
+            }
+            self.static: dict[str, Any] = {
+                "teams": getattr(nba_static, "teams", None),
+                "players": getattr(nba_static, "players", None),
+            }
+        except ImportError as e:
+            raise ImportError("nba_api is required. Install with: pip install nba_api") from e
+
+    def _call_endpoint(
+        self,
+        endpoint_name: str,
+        **params: Any,
+    ) -> dict[str, Any]:
+        """
+        Call an nba_api endpoint and extract response data.
+
+        This method handles nba_api-specific response format and error handling.
+
+        Args:
+            endpoint_name: Name of the endpoint (from self.endpoints).
+            **params: Parameters to pass to the endpoint.
+
+        Returns:
+            Response data as dictionary with dataset names as keys.
+
+        Raises:
+            ValueError: If endpoint is not found.
+            RateLimitError: If API returns HTTP 429.
+            TimeoutError: If request times out.
+            ConnectionError: If connection fails.
+            Exception: For other errors.
+        """
+        endpoint_class = self.endpoints.get(endpoint_name)
+        if endpoint_class is None:
+            raise ValueError(f"Unknown endpoint: {endpoint_name}")
+
+        try:
+            # Make request with timeout
+            response = endpoint_class(**params, timeout=self.timeout)
+
+            # Extract data from response
+            # nba_api returns data in data_sets dict
+            result: dict[str, Any] = {}
+            if hasattr(response, "data_sets"):
+                for dataset_name, dataset in response.data_sets.items():
+                    result[dataset_name] = dataset.get_dict()
+            elif hasattr(response, "dict"):
+                result = response.dict()
+
+            return result
+
+        except Exception as e:
+            error_str = str(e)
+            error_type = type(e).__name__
+
+            # Detect HTTP 429 rate-limit responses surfaced by nba_api
+            if "429" in error_str or "too many requests" in error_str.lower():
+                raise RateLimitError(
+                    f"NBA.com rate limit exceeded for endpoint '{endpoint_name}'. "
+                    "Wait before retrying."
+                ) from e
+
+            # Detect timeout errors
+            if "timeout" in error_str.lower() or "timed out" in error_str.lower():
+                raise TimeoutError(
+                    f"Request to '{endpoint_name}' timed out after {self.timeout}s"
+                ) from e
+
+            # Detect connection errors
+            if "connection" in error_str.lower() or "network" in error_str.lower():
+                raise ConnectionError(
+                    f"Cannot connect to NBA Stats API for endpoint '{endpoint_name}': {e}"
+                ) from e
+
+            # Re-raise other exceptions
+            raise Exception(
+                f"NBA Stats API request failed for '{endpoint_name}': {error_type}: {error_str}"
+            ) from e
+
+    def get_player_tracking(
+        self,
+        player_id: int,
+        season: str,
+        season_type: str = "Regular Season",
+        measure_type: str = "Base",
+        per_mode: str = "PerGame",
+        plus_minus: str = "N",
+        pace_adjust: str = "N",
+        rank: str = "N",
+        outcome: str = "",
+        location: str = "",
+        month: int = 0,
+        season_segment: str = "",
+        date_from: str = "",
+        date_to: str = "",
+        opponent_team_id: int = 0,
+        vs_conference: str = "",
+        vs_division: str = "",
+        game_segment: str = "",
+        period: int = 0,
+        shot_clock_range: str = "",
+        last_n_games: int = 0,
+    ) -> dict[str, Any]:
+        """Get player tracking data using nba_api."""
+        return self._call_endpoint(
+            "playerdashptstats",
+            player_id=player_id,
+            season=season,
+            season_type=season_type,
+            measure_type=measure_type,
+            per_mode=per_mode,
+            plus_minus=plus_minus,
+            pace_adjust=pace_adjust,
+            rank=rank,
+            outcome=outcome,
+            location=location,
+            month=month,
+            season_segment=season_segment,
+            date_from=date_from,
+            date_to=date_to,
+            opponent_team_id=opponent_team_id,
+            vs_conference=vs_conference,
+            vs_division=vs_division,
+            game_segment=game_segment,
+            period=period,
+            shot_clock_range=shot_clock_range,
+            last_n_games=last_n_games,
+        )
+
+    def get_team_lineups(
+        self,
+        team_id: int,
+        season: str,
+        season_type: str = "Regular Season",
+        measure_type: str = "Base",
+        per_mode: str = "PerGame",
+        plus_minus: str = "N",
+        pace_adjust: str = "N",
+        rank: str = "N",
+        outcome: str = "",
+        location: str = "",
+        month: int = 0,
+        season_segment: str = "",
+        date_from: str = "",
+        date_to: str = "",
+        opponent_team_id: int = 0,
+        vs_conference: str = "",
+        vs_division: str = "",
+        game_segment: str = "",
+        period: int = 0,
+        shot_clock_range: str = "",
+        last_n_games: int = 0,
+        group_quantity: int = 5,
+    ) -> dict[str, Any]:
+        """Get team lineup data using nba_api."""
+        return self._call_endpoint(
+            "teamdashlineups",
+            team_id=team_id,
+            season=season,
+            season_type=season_type,
+            measure_type=measure_type,
+            per_mode=per_mode,
+            plus_minus=plus_minus,
+            pace_adjust=pace_adjust,
+            rank=rank,
+            outcome=outcome,
+            location=location,
+            month=month,
+            season_segment=season_segment,
+            date_from=date_from,
+            date_to=date_to,
+            opponent_team_id=opponent_team_id,
+            vs_conference=vs_conference,
+            vs_division=vs_division,
+            game_segment=game_segment,
+            period=period,
+            shot_clock_range=shot_clock_range,
+            last_n_games=last_n_games,
+            group_quantity=group_quantity,
+        )
+
+    def get_all_lineups(
+        self,
+        season: str,
+        season_type: str = "Regular Season",
+        measure_type: str = "Base",
+        per_mode: str = "Totals",
+        plus_minus: str = "N",
+        pace_adjust: str = "N",
+        rank: str = "N",
+        outcome: str = "",
+        location: str = "",
+        month: int = 0,
+        season_segment: str = "",
+        date_from: str = "",
+        date_to: str = "",
+        opponent_team_id: int = 0,
+        vs_conference: str = "",
+        vs_division: str = "",
+        game_segment: str = "",
+        period: int = 0,
+        shot_clock_range: str = "",
+        last_n_games: int = 0,
+        group_quantity: int = 5,
+    ) -> dict[str, Any]:
+        """Get all league lineups using nba_api."""
+        return self._call_endpoint(
+            "leaguedashlineups",
+            league_id="00",  # NBA
+            season=season,
+            season_type=season_type,
+            measure_type=measure_type,
+            per_mode=per_mode,
+            plus_minus=plus_minus,
+            pace_adjust=pace_adjust,
+            rank=rank,
+            outcome=outcome,
+            location=location,
+            month=month,
+            season_segment=season_segment,
+            date_from=date_from,
+            date_to=date_to,
+            opponent_team_id=opponent_team_id,
+            vs_conference=vs_conference,
+            vs_division=vs_division,
+            game_segment=game_segment,
+            period=period,
+            shot_clock_range=shot_clock_range,
+            last_n_games=last_n_games,
+            group_quantity=group_quantity,
+        )
+
+    def get_box_score_summary(
+        self,
+        game_id: str,
+    ) -> dict[str, Any]:
+        """Get box score summary using nba_api."""
+        return self._call_endpoint(
+            "boxscoresummaryv2",
+            game_id=game_id,
+        )
+
+    def get_team_advanced_stats(
+        self,
+        team_id: int,
+        season: str,
+        season_type: str = "Regular Season",
+        measure_type: str = "Advanced",
+        per_mode: str = "PerGame",
+        plus_minus: str = "N",
+        pace_adjust: str = "N",
+        rank: str = "N",
+        outcome: str = "",
+        location: str = "",
+        month: int = 0,
+        season_segment: str = "",
+        date_from: str = "",
+        date_to: str = "",
+        opponent_team_id: int = 0,
+        vs_conference: str = "",
+        vs_division: str = "",
+        game_segment: str = "",
+        period: int = 0,
+        shot_clock_range: str = "",
+        last_n_games: int = 0,
+    ) -> dict[str, Any]:
+        """Get team advanced stats using nba_api."""
+        return self._call_endpoint(
+            "leaguedashteamstats",
+            league_id="00",  # NBA
+            season=season,
+            season_type=season_type,
+            measure_type=measure_type,
+            per_mode=per_mode,
+            plus_minus=plus_minus,
+            pace_adjust=pace_adjust,
+            rank=rank,
+            outcome=outcome,
+            location=location,
+            month=month,
+            season_segment=season_segment,
+            date_from=date_from,
+            date_to=date_to,
+            opponent_team_id=opponent_team_id,
+            vs_conference=vs_conference,
+            vs_division=vs_division,
+            game_segment=game_segment,
+            period=period,
+            shot_clock_range=shot_clock_range,
+            last_n_games=last_n_games,
+        )
+
+    def get_team_id_by_abbreviation(self, abbreviation: str) -> int | None:
+        """Get team ID from abbreviation using nba_api static data."""
+        try:
+            teams_list = self.static["teams"].get_teams()
+            for team in teams_list:
+                if team["abbreviation"] == abbreviation.upper():
+                    return int(team["id"])
+        except Exception:
+            # Silently fail - static data may not be available
+            logger.debug("Failed to get team ID from static data", abbreviation=abbreviation)
+        return None
+
+    def get_player_id_by_name(self, full_name: str) -> int | None:
+        """Get player ID from name using nba_api static data."""
+        try:
+            players_list = self.static["players"].get_players()
+            for player in players_list:
+                if player["full_name"].lower() == full_name.lower():
+                    return int(player["id"])
+        except Exception:
+            # Silently fail - static data may not be available
+            logger.debug("Failed to get player ID from static data", full_name=full_name)
+        return None

@@ -27,6 +27,11 @@ class Settings(BaseSettings):
     cache_dir: str = Field(default="cache", description="Directory for cached responses")
     cache_enabled: bool = Field(default=True, description="Enable response caching")
 
+    # Quarantine Configuration
+    quarantine_dir: str = Field(
+        default="data/quarantine", description="Directory for failed validation data"
+    )
+
     # Logging
     log_level: str = Field(default="INFO", description="Logging level")
     log_format: str = Field(default="json", description="Log format (json or console)")
@@ -86,11 +91,11 @@ def ensure_directories() -> None:
     """
     Ensure all required directories exist.
 
-    This creates the cache, logs, and database directories if they don't exist.
+    This creates the cache, logs, quarantine, and database directories if they don't exist.
     """
     settings = get_settings()
 
-    for path_key in ["cache_dir", "log_dir"]:
+    for path_key in ["cache_dir", "log_dir", "quarantine_dir"]:
         path = getattr(settings, path_key)
         Path(path).mkdir(parents=True, exist_ok=True)
 

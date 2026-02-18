@@ -1,29 +1,30 @@
 """NBA.com Stats API client wrapper for data ingestion.
 
 This client provides access to NBA.com's stats.nba.com API endpoints
-using the nba_api library, with caching, rate limiting, and error handling.
+using an adapter pattern, with caching, rate limiting, and error handling.
+
+The client uses an adapter interface to decouple from specific implementations,
+making it easy to swap the underlying library (nba_api, direct HTTP, etc.)
+without changing client code.
 """
 
 from typing import Any
 
 import structlog
 
+from nba_vault.ingestion.adapters import NbaApiAdapter, NBAStatsAdapter
 from nba_vault.utils.cache import ContentCache
 from nba_vault.utils.rate_limit import RateLimiter
 
 logger = structlog.get_logger(__name__)
 
 
-class RateLimitError(Exception):
-    """Raised when the NBA.com API responds with HTTP 429 (Too Many Requests)."""
-
-
 class NBAStatsClient:
     """
-    Client for NBA.com Stats API using nba_api library.
+    Client for NBA.com Stats API using adapter pattern.
 
-    This client wraps the nba_api library with caching, rate limiting,
-    and error handling for reliable data ingestion.
+    This client wraps NBA.com Stats API access through an adapter interface,
+    providing caching, rate limiting, and error handling for reliable data ingestion.
 
     NBA.com Stats API provides:
     - Player tracking data (speed, distance, touches, drives)
@@ -35,6 +36,12 @@ class NBAStatsClient:
 
     Note: NBA.com does not officially document these APIs and may change
     endpoints without notice. This client handles common errors gracefully.
+
+    The adapter pattern allows:
+    - Easy swapping of underlying API implementations
+    - Testing with mock adapters
+    - Isolation of library-specific quirks
+    - Future migration to direct HTTP calls if needed
     """
 
     def __init__(
@@ -42,6 +49,7 @@ class NBAStatsClient:
         cache: ContentCache | None = None,
         rate_limiter: RateLimiter | None = None,
         timeout: int = 30,
+        adapter: NBAStatsAdapter | None = None,
     ):
         """
         Initialize NBA Stats client.
@@ -51,117 +59,73 @@ class NBAStatsClient:
             rate_limiter: Rate limiter for requests. If None, creates default.
                          NBA.com allows ~8 requests/minute before throttling.
             timeout: Request timeout in seconds.
+            adapter: NBAStatsAdapter instance. If None, creates NbaApiAdapter.
+                   Useful for testing with mock adapters or alternative implementations.
         """
         self.cache = cache or ContentCache()
         # NBA.com is aggressive with rate limiting
         self.rate_limiter = rate_limiter or RateLimiter(rate=6, per=60)
         self.timeout = timeout
+        self.adapter = adapter or NbaApiAdapter(timeout=timeout)
         self.logger = logger.bind(component="nba_stats_client")
-
-        try:
-            import importlib  # noqa: PLC0415
-
-            def _load_endpoint(module_path: str, class_name: str) -> Any:
-                try:
-                    mod = importlib.import_module(module_path)
-                    return getattr(mod, class_name, None)
-                except (ImportError, ModuleNotFoundError):
-                    return None
-
-            nba_endpoints = importlib.import_module("nba_api.stats.endpoints")
-            nba_static = importlib.import_module("nba_api.stats.static")
-
-            self.endpoints: dict[str, Any] = {
-                "leaguedashplayerstats": getattr(nba_endpoints, "LeagueDashPlayerStats", None)
-                or _load_endpoint(
-                    "nba_api.stats.endpoints.leaguedashplayerstats", "LeagueDashPlayerStats"
-                ),
-                "leaguedashteamstats": getattr(nba_endpoints, "LeagueDashTeamStats", None)
-                or _load_endpoint(
-                    "nba_api.stats.endpoints.leaguedashteamstats", "LeagueDashTeamStats"
-                ),
-                "playerdashptstats": getattr(nba_endpoints, "PlayerDashPtStats", None)
-                or _load_endpoint("nba_api.stats.endpoints.playerdashptstats", "PlayerDashPtStats"),
-                "teamdashlineups": getattr(nba_endpoints, "TeamDashLineups", None)
-                or _load_endpoint("nba_api.stats.endpoints.teamdashlineups", "TeamDashLineups"),
-                "boxscoresummaryv2": getattr(nba_endpoints, "BoxScoreSummaryV2", None)
-                or _load_endpoint("nba_api.stats.endpoints.boxscoresummaryv2", "BoxScoreSummaryV2"),
-                "leaguedashlineups": getattr(nba_endpoints, "LeagueDashLineups", None)
-                or _load_endpoint("nba_api.stats.endpoints.leaguedashlineups", "LeagueDashLineups"),
-                "teamyearoveryearstats": getattr(nba_endpoints, "TeamYearOverYearStats", None)
-                or _load_endpoint(
-                    "nba_api.stats.endpoints.teamyearoveryearstats", "TeamYearOverYearStats"
-                ),
-            }
-            self.static: dict[str, Any] = {
-                "teams": getattr(nba_static, "teams", None),
-                "players": getattr(nba_static, "players", None),
-            }
-        except ImportError as e:
-            self.logger.error("nba_api not installed")
-            raise ImportError("nba_api is required. Install with: pip install nba_api") from e
 
     def _make_request(
         self,
-        endpoint_name: str,
+        method_name: str,
         cache_key: str | None = None,
         **params: Any,
     ) -> dict[str, Any]:
         """
-        Make a request to NBA.com Stats API.
+        Make a request to NBA.com Stats API through the adapter.
+
+        This method provides caching, rate limiting, and error handling
+        for all adapter method calls.
 
         Args:
-            endpoint_name: Name of the endpoint (from self.endpoints).
+            method_name: Name of the adapter method to call.
             cache_key: Optional cache key. If None, generates from params.
-            **params: Parameters to pass to the endpoint.
+            **params: Parameters to pass to the adapter method.
 
         Returns:
             Response data as dictionary.
 
         Raises:
+            RateLimitError: If API rate limit is exceeded.
+            TimeoutError: If request times out.
+            ConnectionError: If connection fails.
             Exception: If request fails after retries.
         """
         if cache_key is None:
-            # Generate cache key from endpoint and params
+            # Generate cache key from method and params
             param_str = "_".join(f"{k}={v}" for k, v in sorted(params.items()))
-            cache_key = f"nba_stats_{endpoint_name}_{param_str}"
+            cache_key = f"nba_stats_{method_name}_{param_str}"
 
         # Check cache first
         cached_data = self.cache.get(cache_key)
         if cached_data is not None:
-            self.logger.debug("Cache hit", endpoint=endpoint_name, params=params)
+            self.logger.debug("Cache hit", method=method_name, params=params)
             return cached_data
 
         # Rate limit before request
         self.rate_limiter.acquire()
 
         try:
-            endpoint_class = self.endpoints.get(endpoint_name)
-            if endpoint_class is None:
-                raise ValueError(f"Unknown endpoint: {endpoint_name}")
+            # Get the method from the adapter
+            method = getattr(self.adapter, method_name)
 
             self.logger.info(
                 "Making NBA Stats API request",
-                endpoint=endpoint_name,
+                method=method_name,
                 params=params,
             )
 
-            # Make request with timeout
-            response = endpoint_class(**params, timeout=self.timeout)
-
-            # Extract data from response
-            # nba_api returns data in data_sets dict
-            result: dict[str, Any] = {}
-            if hasattr(response, "data_sets"):
-                for dataset_name, dataset in response.data_sets.items():
-                    result[dataset_name] = dataset.get_dict()
-            elif hasattr(response, "dict"):
-                result = response.dict()
+            # Call the adapter method
+            result = method(**params)
 
             if not result:
                 self.logger.warning(
                     "NBA Stats API returned empty response",
-                    endpoint=endpoint_name,
+                    method=method_name,
                     params=params,
                 )
 
@@ -170,56 +134,20 @@ class NBAStatsClient:
 
             self.logger.info(
                 "Successfully fetched data",
-                endpoint=endpoint_name,
+                method=method_name,
                 datasets=list(result.keys()),
             )
 
             return result
 
         except Exception as e:
-            error_str = str(e)
-            error_type = type(e).__name__
-
-            # Detect HTTP 429 rate-limit responses surfaced by nba_api
-            if "429" in error_str or "too many requests" in error_str.lower():
-                self.logger.warning(
-                    "NBA Stats API rate limit hit (HTTP 429)",
-                    endpoint=endpoint_name,
-                )
-                raise RateLimitError(
-                    f"NBA.com rate limit exceeded for endpoint '{endpoint_name}'. "
-                    "Wait before retrying."
-                ) from e
-
-            # Detect timeout errors
-            if "timeout" in error_str.lower() or "timed out" in error_str.lower():
-                self.logger.warning(
-                    "NBA Stats API request timed out",
-                    endpoint=endpoint_name,
-                    timeout=self.timeout,
-                    error=error_str,
-                )
-                raise TimeoutError(
-                    f"Request to '{endpoint_name}' timed out after {self.timeout}s"
-                ) from e
-
-            # Detect connection errors
-            if "connection" in error_str.lower() or "network" in error_str.lower():
-                self.logger.error(
-                    "NBA Stats API connection error",
-                    endpoint=endpoint_name,
-                    error=error_str,
-                )
-                raise ConnectionError(
-                    f"Cannot connect to NBA Stats API for endpoint '{endpoint_name}': {e}"
-                ) from e
-
+            # Log and re-raise adapter exceptions
             self.logger.error(
                 "NBA Stats API request failed",
-                endpoint=endpoint_name,
+                method=method_name,
                 params=params,
-                error_type=error_type,
-                error=error_str,
+                error_type=type(e).__name__,
+                error=str(e),
             )
             raise
 
@@ -267,7 +195,7 @@ class NBAStatsClient:
             Exception: If request fails.
         """
         return self._make_request(
-            "playerdashptstats",
+            "get_player_tracking",
             player_id=player_id,
             season=season,
             season_type=season_type,
@@ -333,7 +261,7 @@ class NBAStatsClient:
             Exception: If request fails.
         """
         return self._make_request(
-            "teamdashlineups",
+            "get_team_lineups",
             team_id=team_id,
             season=season,
             season_type=season_type,
@@ -398,7 +326,7 @@ class NBAStatsClient:
             Exception: If request fails.
         """
         return self._make_request(
-            "leaguedashlineups",
+            "get_all_lineups",
             league_id="00",  # NBA
             season=season,
             season_type=season_type,
@@ -444,7 +372,7 @@ class NBAStatsClient:
             Exception: If request fails.
         """
         return self._make_request(
-            "boxscoresummaryv2",
+            "get_box_score_summary",
             game_id=game_id,
         )
 
@@ -488,8 +416,8 @@ class NBAStatsClient:
             Exception: If request fails.
         """
         return self._make_request(
-            "leaguedashteamstats",
-            league_id="00",  # NBA
+            "get_team_advanced_stats",
+            team_id=team_id,
             season=season,
             season_type=season_type,
             measure_type=measure_type,
@@ -522,14 +450,7 @@ class NBAStatsClient:
         Returns:
             Team ID if found, None otherwise.
         """
-        try:
-            teams_list = self.static["teams"].get_teams()
-            for team in teams_list:
-                if team["abbreviation"] == abbreviation.upper():
-                    return int(team["id"])
-        except Exception as e:
-            self.logger.error("Failed to get team ID", abbreviation=abbreviation, error=str(e))
-        return None
+        return self.adapter.get_team_id_by_abbreviation(abbreviation)
 
     def get_player_id_by_name(self, full_name: str) -> int | None:
         """
@@ -541,11 +462,4 @@ class NBAStatsClient:
         Returns:
             Player ID if found, None otherwise.
         """
-        try:
-            players_list = self.static["players"].get_players()
-            for player in players_list:
-                if player["full_name"].lower() == full_name.lower():
-                    return int(player["id"])
-        except Exception as e:
-            self.logger.error("Failed to get player ID", name=full_name, error=str(e))
-        return None
+        return self.adapter.get_player_id_by_name(full_name)

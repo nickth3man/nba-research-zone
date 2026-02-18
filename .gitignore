@@ -38,6 +38,7 @@ nba.sqlite
 nba.duckdb
 cache/
 logs/
+data/quarantine/
 *.log
 .env
 

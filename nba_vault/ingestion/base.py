@@ -1,14 +1,19 @@
 """Base class for data ingestors."""
 
+import asyncio
+import json
 import sqlite3
 from abc import ABC, abstractmethod
+from datetime import UTC, datetime
+from pathlib import Path
 from typing import Any
 
 import pydantic
 import structlog
 
 from nba_vault.utils.cache import ContentCache
-from nba_vault.utils.rate_limit import RateLimiter, retry_with_backoff
+from nba_vault.utils.config import get_settings
+from nba_vault.utils.rate_limit import AsyncRateLimiter, RateLimiter, retry_with_backoff
 
 logger = structlog.get_logger(__name__)
 
@@ -29,9 +34,25 @@ class BaseIngestor(ABC):
         Args:
             cache: Content cache for API responses. If None, creates default.
             rate_limiter: Rate limiter for API requests. If None, creates default.
+                         Supports both RateLimiter (sync) and AsyncRateLimiter.
         """
         self.cache = cache or ContentCache()
-        self.rate_limiter = rate_limiter or RateLimiter(rate=8, per=60)
+
+        # Support async rate limiter if provided
+        if rate_limiter is None:
+            # Check if async context is available
+            try:
+                asyncio.get_running_loop()
+                self.rate_limiter = AsyncRateLimiter(rate=8, per=60)
+                self._is_async = True
+            except RuntimeError:
+                # No running event loop, use sync version
+                self.rate_limiter = RateLimiter(rate=8, per=60)
+                self._is_async = False
+        else:
+            self.rate_limiter = rate_limiter
+            self._is_async = isinstance(rate_limiter, AsyncRateLimiter)
+
         self.logger = logger.bind(entity_type=self.entity_type)
 
     @abstractmethod
@@ -132,7 +153,8 @@ class BaseIngestor(ABC):
                 entity_id=entity_id,
                 errors=str(e),
             )
-            # TODO: Write raw data to quarantine directory
+            # Write raw data to quarantine directory
+            self._quarantine_data(entity_id, raw_data, str(e))
             return {
                 "status": "FAILED",
                 "entity_id": entity_id,
@@ -166,3 +188,87 @@ class BaseIngestor(ABC):
                 "error": type(e).__name__,
                 "error_message": str(e),
             }
+
+    def _quarantine_data(
+        self, entity_id: str, raw_data: dict[str, Any], error_message: str
+    ) -> Path:
+        """
+        Write failed validation data to quarantine directory.
+
+        Args:
+            entity_id: Identifier for the entity that failed validation.
+            raw_data: Raw data that failed validation.
+            error_message: Validation error message.
+
+        Returns:
+            Path to the quarantined file.
+        """
+        settings = get_settings()
+        quarantine_base = Path(settings.quarantine_dir)
+
+        # Create entity-type-specific subdirectory
+        entity_dir = quarantine_base / self.entity_type
+        entity_dir.mkdir(parents=True, exist_ok=True)
+
+        # Generate filename with timestamp and entity_id
+        timestamp = datetime.now(UTC).strftime("%Y%m%d_%H%M%S_%f")
+        # Sanitize entity_id for filename (replace special chars with underscore)
+        safe_entity_id = "".join(c if c.isalnum() or c in ("-", "_") else "_" for c in entity_id)
+        filename = f"{timestamp}_{safe_entity_id}.json"
+        filepath = entity_dir / filename
+
+        # Prepare quarantine metadata
+        quarantine_data = {
+            "entity_id": entity_id,
+            "entity_type": self.entity_type,
+            "timestamp": datetime.now(UTC).isoformat(),
+            "error": error_message,
+            "raw_data": raw_data,
+        }
+
+        # Write to file with error handling
+        try:
+            with filepath.open("w", encoding="utf-8") as f:
+                json.dump(quarantine_data, f, indent=2, default=str, ensure_ascii=False)
+
+            self.logger.info(
+                "Data quarantined",
+                entity_id=entity_id,
+                quarantine_path=str(filepath),
+            )
+
+        except OSError as e:
+            self.logger.warning(
+                "Failed to write quarantine file",
+                entity_id=entity_id,
+                error=str(e),
+                attempted_path=str(filepath),
+            )
+            # Return path even if write failed for error tracking
+        except (TypeError, ValueError) as e:
+            self.logger.warning(
+                "Failed to serialize quarantine data",
+                entity_id=entity_id,
+                error=str(e),
+                attempted_path=str(filepath),
+            )
+            # Try to write without the problematic data
+            try:
+                minimal_data = {
+                    "entity_id": entity_id,
+                    "entity_type": self.entity_type,
+                    "timestamp": datetime.now(UTC).isoformat(),
+                    "error": error_message,
+                    "raw_data": {"serialization_failed": str(e)},
+                }
+                with filepath.open("w", encoding="utf-8") as f:
+                    json.dump(minimal_data, f, indent=2, default=str, ensure_ascii=False)
+            except Exception as log_e:
+                # If even minimal write fails, log and return the path
+                self.logger.warning(
+                    "Failed to write minimal quarantine data",
+                    entity_id=entity_id,
+                    error=str(log_e),
+                )
+
+        return filepath

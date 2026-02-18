@@ -666,12 +666,13 @@ def test_export_duckdb_success():
 
 
 def test_export_unsupported_format():
+    """Test that unsupported export formats are rejected with appropriate error."""
     from nba_vault.cli import app
 
-    result = runner.invoke(app, ["export", "export", "--format", "parquet"])
+    result = runner.invoke(app, ["export", "export", "--format", "xml"])
 
     assert result.exit_code == 1
-    assert "not yet implemented" in result.output
+    assert "Unknown export format" in result.output
 
 
 def test_export_duckdb_failure():
@@ -685,3 +686,217 @@ def test_export_duckdb_failure():
 
     assert result.exit_code == 1
     assert "FAIL" in result.output
+
+
+def test_export_csv_empty_db():
+    """Test CSV export with empty database (no tables with data)."""
+    from nba_vault.cli import app
+
+    with patch("nba_vault.cli.export.get_db_connection") as mock_get_conn:
+        mock_conn = _mock_conn()
+        # Simulate empty database - no user tables
+        mock_conn.cursor.return_value.fetchall.return_value = [
+            ("_yoyo_log",),
+            ("_yoyo_migration",),
+            ("sqlite_sequence",),
+        ]
+        mock_get_conn.return_value = mock_conn
+
+        result = runner.invoke(app, ["export", "export", "--format", "csv"])
+
+    assert result.exit_code == 0
+    assert "Exporting to CSV format" in result.output
+
+
+def test_export_csv_success():
+    """Test CSV export with sample data."""
+    from nba_vault.cli import app
+
+    with patch("nba_vault.cli.export.get_db_connection") as mock_get_conn:
+        mock_conn = _mock_conn()
+        mock_cursor = MagicMock()
+
+        # Simulate tables with data
+        mock_cursor.execute.return_value = None
+        mock_cursor.fetchone.side_effect = None
+        mock_cursor.fetchall.side_effect = [
+            # First call: get list of tables
+            [
+                ("league",),
+                ("season",),
+                ("player",),
+                ("_yoyo_log",),
+            ],
+            # league table data
+            [
+                ("NBA", "National Basketball Association", 1946, None),
+                ("ABA", "American Basketball Association", 1967, 1976),
+            ],
+            # season table data
+            [
+                (2024, "NBA", "2024-25", 82, "2024-10-22", "2025-04-15", None, None),
+            ],
+            # player table data
+            [
+                (2544, "LeBron", "James", "LeBron James", "1984-12-30", None, None, "USA"),
+            ],
+        ]
+        mock_cursor.description = [
+            MagicMock(__getitem__=lambda self, x: "league_id"),
+            MagicMock(__getitem__=lambda self, x: "league_name"),
+            MagicMock(__getitem__=lambda self, x: "founded_year"),
+            MagicMock(__getitem__=lambda self, x: "folded_year"),
+        ]
+        mock_conn.cursor.return_value = mock_cursor
+        mock_get_conn.return_value = mock_conn
+
+        result = runner.invoke(app, ["export", "export", "--format", "csv", "-o", "test_out"])
+
+    assert result.exit_code == 0
+    assert "Exporting to CSV format" in result.output
+    assert "league: 2 rows" in result.output
+
+
+def test_export_json_success():
+    """Test JSON export with sample data."""
+    from nba_vault.cli import app
+
+    with patch("nba_vault.cli.export.get_db_connection") as mock_get_conn:
+        mock_conn = _mock_conn()
+        mock_cursor = MagicMock()
+
+        # Simulate a single table with data
+        mock_cursor.execute.return_value = None
+        mock_cursor.fetchall.side_effect = [
+            # First call: get list of tables
+            [("league",), ("_yoyo_log",)],
+            # Second call: league table data
+            [("NBA", "National Basketball Association", 1946, None)],
+        ]
+        mock_cursor.description = [
+            MagicMock(__getitem__=lambda self, x: "league_id"),
+            MagicMock(__getitem__=lambda self, x: "league_name"),
+            MagicMock(__getitem__=lambda self, x: "founded_year"),
+            MagicMock(__getitem__=lambda self, x: "folded_year"),
+        ]
+        mock_conn.cursor.return_value = mock_cursor
+        mock_get_conn.return_value = mock_conn
+
+        result = runner.invoke(app, ["export", "export", "--format", "json"])
+
+    assert result.exit_code == 0
+    assert "Exporting to JSON format" in result.output
+    assert "league: 1 rows" in result.output
+
+
+def test_export_parquet_success():
+    """Test Parquet export with sample data."""
+    from pathlib import Path
+
+    from nba_vault.cli import app
+
+    with (
+        patch("nba_vault.cli.export.get_db_connection") as mock_get_conn,
+        patch("nba_vault.cli.export.pa.table") as mock_pa_table,
+        patch("nba_vault.cli.export.pq.write_table") as mock_write,
+    ):
+        mock_conn = _mock_conn()
+        mock_cursor = MagicMock()
+
+        # Simulate a single table with data
+        mock_cursor.execute.return_value = None
+        mock_cursor.fetchall.side_effect = [
+            # First call: get list of tables
+            [("league",), ("_yoyo_log",)],
+            # Second call: league table data
+            [("NBA", "National Basketball Association", 1946, None)],
+        ]
+        mock_cursor.description = [
+            MagicMock(__getitem__=lambda self, x: "league_id"),
+            MagicMock(__getitem__=lambda self, x: "league_name"),
+            MagicMock(__getitem__=lambda self, x: "founded_year"),
+            MagicMock(__getitem__=lambda self, x: "folded_year"),
+        ]
+
+        # Mock PyArrow table creation
+        mock_arrow_table = MagicMock()
+        mock_arrow_table.num_rows = 1
+        mock_pa_table.return_value = mock_arrow_table
+
+        # Mock write_table to create an actual file for size checking
+        def side_effect_write(table, path):
+            path_obj = Path(path)
+            path_obj.parent.mkdir(parents=True, exist_ok=True)
+            path_obj.write_bytes(b"mock parquet data")
+
+        mock_write.side_effect = side_effect_write
+
+        mock_conn.cursor.return_value = mock_cursor
+        mock_get_conn.return_value = mock_conn
+
+        result = runner.invoke(app, ["export", "export", "--format", "parquet", "-o", "test_out"])
+
+        # Cleanup
+        import shutil
+
+        test_out = Path("test_out")
+        if test_out.exists():
+            shutil.rmtree(test_out)
+
+    assert result.exit_code == 0
+    assert "Exporting to Parquet format" in result.output
+    assert "league: 1 rows" in result.output
+
+
+def test_export_with_entity_filter():
+    """Test export with specific entity filter."""
+    from nba_vault.cli import app
+
+    with patch("nba_vault.cli.export.get_db_connection") as mock_get_conn:
+        mock_conn = _mock_conn()
+        mock_cursor = MagicMock()
+
+        # Simulate tables
+        mock_cursor.execute.return_value = None
+        mock_cursor.fetchall.side_effect = [
+            # First call: all tables
+            [("league",), ("season",), ("player",)],
+            # Second call: only league data (filtered)
+            [("NBA", "National Basketball Association", 1946, None)],
+        ]
+        mock_cursor.description = [
+            MagicMock(__getitem__=lambda self, x: "league_id"),
+            MagicMock(__getitem__=lambda self, x: "league_name"),
+            MagicMock(__getitem__=lambda self, x: "founded_year"),
+            MagicMock(__getitem__=lambda self, x: "folded_year"),
+        ]
+        mock_conn.cursor.return_value = mock_cursor
+        mock_get_conn.return_value = mock_conn
+
+        result = runner.invoke(app, ["export", "export", "--format", "csv", "--entity", "league"])
+
+    assert result.exit_code == 0
+    assert "league: 1 rows" in result.output
+
+
+def test_export_invalid_table_name():
+    """Test that invalid table names are rejected."""
+    from nba_vault.cli import app
+
+    with patch("nba_vault.cli.export.get_db_connection") as mock_get_conn:
+        mock_conn = _mock_conn()
+        mock_cursor = MagicMock()
+
+        # Return a table with invalid characters
+        mock_cursor.execute.return_value = None
+        mock_cursor.fetchall.side_effect = [
+            [("league;DROP TABLE",), ("valid_table",)],
+        ]
+        mock_conn.cursor.return_value = mock_cursor
+        mock_get_conn.return_value = mock_conn
+
+        result = runner.invoke(app, ["export", "export", "--format", "csv"])
+
+    # Should fail due to invalid table name validation
+    assert result.exit_code == 1
+    assert "Invalid table name" in result.output

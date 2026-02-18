@@ -1,6 +1,8 @@
 """Admin commands: init, migrate, status, validate."""
 
+from dataclasses import dataclass
 from pathlib import Path
+from typing import Any
 
 import structlog
 import typer
@@ -12,6 +14,65 @@ from nba_vault.utils.config import get_settings
 admin_app = typer.Typer(help="Database administration commands.")
 
 logger = structlog.get_logger(__name__)
+
+
+@dataclass
+class ValidationResult:
+    """Result of a validation check."""
+
+    check_name: str
+    passed: bool
+    message: str
+    details: dict[str, Any] | None = None
+
+
+def validate_fk_integrity(conn) -> ValidationResult:
+    """Validate foreign key integrity across all tables."""
+    cursor = conn.execute("PRAGMA foreign_key_check")
+    violations = cursor.fetchall()
+
+    return ValidationResult(
+        check_name="fk_integrity",
+        passed=len(violations) == 0,
+        message=f"{len(violations)} foreign key violation(s) found",
+        details={"violations": [dict(v) for v in violations]} if violations else None,
+    )
+
+
+def validate_data_availability(conn) -> ValidationResult:
+    """Validate data availability flags are consistent."""
+    cursor = conn.execute(
+        """
+        SELECT COUNT(*) FROM game
+        WHERE data_availability_flags > 0
+        AND season_year >= 2013
+    """
+    )
+    count = cursor.fetchone()[0]
+
+    return ValidationResult(
+        check_name="data_availability",
+        passed=count > 0,
+        message=f"{count:,} games with tracking data available",
+    )
+
+
+def validate_schema_version(conn) -> ValidationResult:
+    """Validate schema version matches migrations."""
+    cursor = conn.execute(
+        """
+        SELECT version FROM _yoyo_migration
+        ORDER BY applied_at DESC LIMIT 1
+    """
+    )
+    result = cursor.fetchone()
+    version = result[0] if result else None
+
+    return ValidationResult(
+        check_name="schema_version",
+        passed=version is not None,
+        message=f"Schema version: {version or 'unknown'}",
+    )
 
 
 @admin_app.command()
@@ -169,9 +230,33 @@ def validate(
         raise typer.Exit(code=1) from e
 
     try:
-        # TODO: Implement validation logic
-        typer.echo("[FAIL] Validation not yet implemented", err=True)
-        raise typer.Exit(code=1)
+        checks_to_run = checks or ["fk_integrity", "data_availability", "schema_version"]
+
+        validators = {
+            "fk_integrity": validate_fk_integrity,
+            "data_availability": validate_data_availability,
+            "schema_version": validate_schema_version,
+        }
+
+        results = []
+        for check_name in checks_to_run:
+            if check_name in validators:
+                result = validators[check_name](conn)
+                results.append(result)
+
+                status_icon = "✓" if result.passed else "✗"
+                typer.echo(f"  {status_icon} {result.check_name}: {result.message}")
+
+        all_passed = all(r.passed for r in results)
+
+        if all_passed:
+            typer.echo(f"\n[OK] All {len(results)} validation check(s) passed")
+        else:
+            failed_count = sum(1 for r in results if not r.passed)
+            typer.echo(
+                f"\n[FAIL] {failed_count}/{len(results)} validation check(s) failed", err=True
+            )
+            raise typer.Exit(code=1)
     except Exception as e:
         logger.error("Validation failed", error=str(e))
         typer.echo(f"[FAIL] Validation failed: {e}", err=True)
