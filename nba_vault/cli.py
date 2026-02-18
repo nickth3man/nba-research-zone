@@ -158,6 +158,70 @@ def ingest(
 
 
 @app.command()
+def ingest_players(
+    season_end_year: int = typer.Option(
+        None,
+        "--season-end-year",
+        "-s",
+        help="Season end year (e.g., 2024 for 2023-24 season)",
+    ),
+    player_id: str = typer.Option(
+        None,
+        "--player-id",
+        "-p",
+        help="Basketball Reference player slug (e.g., 'jamesle01')",
+    ),
+) -> None:
+    """
+    Ingest player data from Basketball Reference.
+
+    Fetches all players from a season by default.
+    Use --player-id to fetch a specific player.
+    """
+    from nba_vault.ingestion import create_ingestor
+
+    conn = get_db_connection()
+
+    try:
+        # Create ingestor
+        ingestor = create_ingestor("players")
+
+        if ingestor is None:
+            typer.echo("✗ Players ingestor not found", err=True)
+            raise typer.Exit(code=1)
+
+        # Determine what to ingest
+        if player_id:
+            typer.echo(f"Ingesting player: {player_id}...")
+            entity_id = player_id
+        else:
+            if season_end_year is None:
+                season_end_year = 2024  # Default to 2023-24 season
+            typer.echo(f"Ingesting players from {season_end_year-1}-{season_end_year} season...")
+            entity_id = "season"
+
+        # Perform ingestion
+        result = ingestor.ingest(entity_id, conn, season_end_year=season_end_year)
+
+        # Check result
+        if result["status"] == "SUCCESS":
+            typer.echo(f"✓ Successfully ingested {result['rows_affected']} player(s)")
+        else:
+            typer.echo(
+                f"✗ Ingestion failed: {result.get('error_message', 'Unknown error')}",
+                err=True,
+            )
+            raise typer.Exit(code=1)
+
+    except Exception as e:
+        logger.error("Player ingestion failed", error=str(e))
+        typer.echo(f"✗ Player ingestion failed: {e}", err=True)
+        raise typer.Exit(code=1)
+    finally:
+        conn.close()
+
+
+@app.command()
 def validate(
     checks: list[str] = typer.Option(
         None,
