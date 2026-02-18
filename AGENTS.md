@@ -25,6 +25,7 @@ The DuckDB builder automatically creates views from `duckdb/views/*.sql` files, 
 ### Database Schema
 
 The schema uses a **franchise vs team** separation:
+
 - `franchise`: Historical continuity (team may relocate/rename)
 - `team`: Season-specific records (links to franchise via foreign key)
 
@@ -132,6 +133,7 @@ class YourIngestor(BaseIngestor):
 ### Ingestor Discovery and Usage
 
 Ingestors are auto-discovered via the registry:
+
 ```python
 from nba_vault.ingestion import create_ingestor, get_ingestor, list_ingestors
 
@@ -151,6 +153,7 @@ result = ingestor.ingest("2544", conn, season="2023-24")
 ### Data Availability Handling
 
 Many data types have historical limitations. Always validate season availability:
+
 ```python
 season_year = int(season.split("-")[0])
 if season_year < 2013:
@@ -160,6 +163,7 @@ if season_year < 2013:
 ### Available Ingestors
 
 The system includes 7 ingestors:
+
 - `players`: Basic player data from Basketball Reference (1946-present)
 - `player_tracking`: Movement metrics from NBA.com API (2013-14+)
 - `lineups`: Lineup combinations from NBA.com API
@@ -183,6 +187,7 @@ Access settings via `get_settings()` from `nba_vault.utils.config`. Settings are
 ## Important File Locations
 
 ### Core Architecture Files
+
 - **Migrations**: `migrations/*.sql` - Database schema changes (SQLite dialect, yoyo-migrations)
 - **DuckDB Views**: `duckdb/views/v_*.sql` - Analytical views (DuckDB dialect, auto-loaded by builder)
 - **Models**: `nba_vault/models/*.py` - Pydantic validation models
@@ -190,12 +195,14 @@ Access settings via `get_settings()` from `nba_vault.utils.config`. Settings are
 - **API Clients**: `nba_vault/ingestion/nba_stats_client.py`, `basketball_reference.py`
 
 ### Configuration
+
 - **Environment**: `.env` - Local environment variables (not in repo)
 - **Project**: `pyproject.toml` - Dependencies, tool config (ruff, ty, sqlfluff)
 - **SQL Linting**: `.sqlfluff` - SQLFluff configuration
 - **Pre-commit**: `.pre-commit-config.yaml` - Pre-commit hooks (ruff)
 
 ### Entry Points
+
 - **CLI**: `nba_vault/cli.py` - Command-line interface (typer-based)
 - **Connection**: `nba_vault/schema/connection.py` - Database connection management
 - **Config**: `nba_vault/utils/config.py` - Settings management (pydantic-settings)
@@ -211,6 +218,7 @@ Always specify the correct dialect when running SQLFluff commands.
 ## Data Ingestion CLI Commands
 
 ### Player Data
+
 ```bash
 # Ingest players from Basketball Reference
 nba-vault ingest-players --season-end-year 2024
@@ -218,6 +226,7 @@ nba-vault ingest-players --player-id jamesle01
 ```
 
 ### Advanced Stats (NBA.com API)
+
 ```bash
 # Player tracking data (2013-14+)
 nba-vault ingest-tracking --player-id 2544 --season 2023-24
@@ -233,6 +242,7 @@ nba-vault ingest-team-advanced-stats --scope league --season 2023-24
 ```
 
 ### Web Scraping Sources
+
 ```bash
 # Injury reports (ESPN/Rotowire)
 nba-vault ingest-injuries --source espn
@@ -251,6 +261,7 @@ nba-vault ingest-contracts --source realgm
 ## Testing Patterns
 
 ### Test Fixtures
+
 ```python
 import pytest
 from nba_vault.schema.connection import get_db_connection
@@ -263,6 +274,7 @@ def db_connection():
 ```
 
 ### Mocking API Responses
+
 ```python
 from unittest.mock import patch
 
@@ -273,6 +285,7 @@ def test_something(mock_request):
 ```
 
 ### Test Location Pattern
+
 - Unit tests: `tests/test_<module>.py`
 - Integration tests: `tests/test_ingestion*.py`
 - New ingestors: `tests/test_new_ingestors.py`
@@ -280,9 +293,15 @@ def test_something(mock_request):
 ## Pre-commit Hooks
 
 Pre-commit hooks automatically run:
+
 - Ruff linting with auto-fix
 - Ruff formatting
 - SQLFluff linting and formatting for SQL files
 
 Install with: `uv run pre-commit install`
 
+## File Synchronization
+
+AGENTS.md and CLAUDE.md are identical files serving different AI agents.
+Whenever you modify one, you must immediately update the other with the
+exact same contents. No diff, no summarization — a byte-for-byte copy.
