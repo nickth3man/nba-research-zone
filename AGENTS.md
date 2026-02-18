@@ -285,3 +285,5 @@ Pre-commit hooks automatically run:
 - SQLFluff linting and formatting for SQL files
 
 Install with: `uv run pre-commit install`
+
+test
