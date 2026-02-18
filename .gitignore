@@ -58,3 +58,4 @@ Thumbs.db
 
 # Migration state
 .migrations-state/
+/.claude
