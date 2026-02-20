@@ -840,3 +840,103 @@ class PlayerBioCreate(BaseModel):
     draft_number: int | None = Field(None, ge=1)
     bbref_id: str | None = Field(None)
     high_school: str | None = Field(None)
+
+
+# ---------------------------------------------------------------------------
+# Game ELO (FiveThirtyEight / Neil-Paine)
+# ---------------------------------------------------------------------------
+
+
+class GameEloCreate(BaseModel):
+    """Maps to the game_elo table. One row per team per game."""
+
+    game_id: str | None = Field(None, description="NBA.com 10-char game_id; NULL for pre-1996")
+    game_date: str = Field(..., description="ISO date YYYY-MM-DD")
+    season_id: int | None = Field(None, ge=1946, le=2099)
+    team_id: int | None = Field(None, description="FK → team.team_id")
+    bbref_team_id: str | None = Field(None, description="Basketball-Reference team abbreviation")
+    elo_before: float = Field(..., description="ELO rating entering the game")
+    elo_after: float = Field(..., description="ELO rating following the game")
+    win_prob: float | None = Field(None, ge=0.0, le=1.0, description="Pre-game ELO win probability")
+    win_equiv: float | None = Field(None, description="Equivalent wins in 82-game season")
+    opponent_elo: float | None = Field(None, description="Opponent ELO entering the game")
+    game_location: str | None = Field(None, description="'H', 'A', or 'N'")
+    pts_scored: int | None = Field(None, ge=0)
+    pts_allowed: int | None = Field(None, ge=0)
+    game_result: str | None = Field(None, description="'W' or 'L'")
+    is_playoffs: int = Field(default=0, description="1 if playoff game")
+    notes: str | None = Field(None)
+    source: str = Field(default="fivethirtyeight")
+
+    @field_validator("game_date")
+    @classmethod
+    def validate_game_date(cls, v: str) -> str:
+        import re  # noqa: PLC0415
+
+        if not re.match(r"^\d{4}-\d{2}-\d{2}$", v):
+            raise ValueError(f"game_date must be YYYY-MM-DD, got '{v}'")
+        return v
+
+    @field_validator("game_location")
+    @classmethod
+    def validate_game_location(cls, v: str | None) -> str | None:
+        if v is not None and v not in ("H", "A", "N"):
+            return None
+        return v
+
+    @field_validator("game_result")
+    @classmethod
+    def validate_game_result(cls, v: str | None) -> str | None:
+        if v is not None and v not in ("W", "L"):
+            return None
+        return v
+
+
+# ---------------------------------------------------------------------------
+# Player RAPTOR (FiveThirtyEight)
+# ---------------------------------------------------------------------------
+
+
+class PlayerRaptorCreate(BaseModel):
+    """Maps to the player_raptor table. One row per player/season/team/type."""
+
+    player_id: int | None = Field(None, description="FK → player.player_id; NULL if unresolved")
+    bbref_id: str | None = Field(None, description="Basketball-Reference player slug")
+    season_id: int = Field(..., ge=1976, le=2099, description="Season start year")
+    season_type: str = Field(..., description="'RS' or 'PO'")
+    team_id: int | None = Field(None, description="FK → team.team_id")
+    bbref_team_id: str | None = Field(None, description="Basketball-Reference team abbreviation")
+    poss: int | None = Field(None, ge=0)
+    mp: int | None = Field(None, ge=0)
+    raptor_box_offense: float | None = Field(None)
+    raptor_box_defense: float | None = Field(None)
+    raptor_box_total: float | None = Field(None)
+    raptor_onoff_offense: float | None = Field(None)
+    raptor_onoff_defense: float | None = Field(None)
+    raptor_onoff_total: float | None = Field(None)
+    raptor_offense: float | None = Field(None)
+    raptor_defense: float | None = Field(None)
+    raptor_total: float | None = Field(None)
+    war_total: float | None = Field(None)
+    war_reg_season: float | None = Field(None)
+    war_playoffs: float | None = Field(None)
+    predator_offense: float | None = Field(None)
+    predator_defense: float | None = Field(None)
+    predator_total: float | None = Field(None)
+    pace_impact: float | None = Field(None)
+    raptor_version: str | None = Field(None, description="'modern', 'mixed', or 'box'")
+
+    @field_validator("season_type")
+    @classmethod
+    def validate_season_type(cls, v: str) -> str:
+        v = v.upper().strip()
+        if v not in ("RS", "PO"):
+            raise ValueError(f"season_type must be 'RS' or 'PO', got '{v}'")
+        return v
+
+    @field_validator("raptor_version")
+    @classmethod
+    def validate_raptor_version(cls, v: str | None) -> str | None:
+        if v is not None and v not in ("modern", "mixed", "box"):
+            raise ValueError(f"raptor_version must be 'modern', 'mixed', or 'box', got '{v}'")
+        return v

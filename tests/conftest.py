@@ -57,3 +57,70 @@ def sample_settings():
         log_level="DEBUG",
         log_format="console",
     )
+
+
+@pytest.fixture
+def mock_conn():
+    """Return a mock SQLite connection with sensible cursor defaults."""
+    from unittest.mock import MagicMock
+
+    conn = MagicMock()
+    cursor = MagicMock()
+    cursor.fetchall.return_value = []
+    cursor.fetchone.return_value = (0,)
+    conn.execute.return_value = cursor
+    return conn
+
+
+@pytest.fixture
+def mock_ingestor():
+    """Return a mock ingestor."""
+    from unittest.mock import MagicMock
+
+    def _create_mock(status="SUCCESS", rows=5, error_message=None):
+        ingestor = MagicMock()
+        result = {"status": status, "rows_affected": rows}
+        if error_message:
+            result["error_message"] = error_message
+        ingestor.ingest.return_value = result
+        return ingestor
+
+    return _create_mock
+
+
+@pytest.fixture
+def patch_db_connection(mock_conn):
+    """Patch get_db_connection globally for CLI tests."""
+    from unittest.mock import patch
+
+    with (
+        patch("nba_vault.cli.admin.get_db_connection", return_value=mock_conn),
+        patch("nba_vault.cli.ingestion.get_db_connection", return_value=mock_conn),
+        patch("nba_vault.cli.advanced_stats.get_db_connection", return_value=mock_conn),
+        patch("nba_vault.cli.scrapers.get_db_connection", return_value=mock_conn),
+        patch("nba_vault.cli.export.get_db_connection", return_value=mock_conn),
+    ):
+        yield mock_conn
+
+
+@pytest.fixture
+def patch_create_ingestor(mock_ingestor):
+    """Patch create_ingestor globally for CLI tests."""
+    from unittest.mock import patch
+
+    # We will return the default mock ingestor (SUCCESS) by default
+    default_ingestor = mock_ingestor()
+    with patch("nba_vault.ingestion.create_ingestor", return_value=default_ingestor) as mock:
+        yield mock
+
+
+@pytest.fixture
+def patch_settings(sample_settings):
+    """Patch get_settings globally for CLI tests."""
+    from unittest.mock import patch
+
+    with (
+        patch("nba_vault.cli.admin.get_settings", return_value=sample_settings),
+        patch("nba_vault.utils.config.get_settings", return_value=sample_settings),
+    ):
+        yield sample_settings

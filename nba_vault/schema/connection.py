@@ -33,7 +33,12 @@ def get_db_connection(db_path: Path | None = None) -> sqlite3.Connection:
         raise RuntimeError(f"Cannot create database directory '{db_path.parent}': {e}") from e
 
     try:
-        conn = sqlite3.connect(str(db_path))
+        # isolation_level=None disables Python's implicit transaction management.
+        # All ingestors manage transactions explicitly via BEGIN/COMMIT/ROLLBACK,
+        # so autocommit mode is correct and avoids "cannot start a transaction
+        # within a transaction" errors when ingestors call conn.execute("BEGIN")
+        # after upsert_audit() has implicitly opened a transaction.
+        conn = sqlite3.connect(str(db_path), isolation_level=None)
     except sqlite3.OperationalError as e:
         raise RuntimeError(f"Cannot open database at '{db_path}': {e}") from e
 

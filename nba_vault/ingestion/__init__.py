@@ -13,6 +13,7 @@ from nba_vault.ingestion.coaches import CoachIngestor
 from nba_vault.ingestion.contracts import ContractIngestor
 from nba_vault.ingestion.draft import DraftIngestor
 from nba_vault.ingestion.draft_combine import DraftCombineIngestor
+from nba_vault.ingestion.elo import EloIngestor
 from nba_vault.ingestion.games import GameOfficialIngestor, GameScheduleIngestor
 from nba_vault.ingestion.injuries import InjuryIngestor
 from nba_vault.ingestion.lineups import LineupsIngestor
@@ -22,6 +23,8 @@ from nba_vault.ingestion.player_bio import PlayerBioIngestor
 from nba_vault.ingestion.player_season_stats import PlayerSeasonStatsIngestor
 from nba_vault.ingestion.player_tracking import PlayerTrackingIngestor
 from nba_vault.ingestion.players import PlayersIngestor
+from nba_vault.ingestion.pre_modern_box_scores import PreModernBoxScoreIngestor
+from nba_vault.ingestion.raptor import RaptorIngestor
 from nba_vault.ingestion.registry import (
     create_ingestor,
     get_ingestor,
@@ -30,6 +33,7 @@ from nba_vault.ingestion.registry import (
 )
 from nba_vault.ingestion.seasons import FranchiseIngestor, SeasonIngestor
 from nba_vault.ingestion.shot_chart import ShotChartIngestor
+from nba_vault.ingestion.shufinskiy import ShufinskiyPBPIngestor
 from nba_vault.ingestion.team_advanced_stats import TeamAdvancedStatsIngestor
 from nba_vault.ingestion.team_other_stats import TeamOtherStatsIngestor
 
@@ -43,6 +47,7 @@ __all__ = [
     "ContractIngestor",
     "DraftCombineIngestor",
     "DraftIngestor",
+    "EloIngestor",
     "FranchiseIngestor",
     "GameOfficialIngestor",
     "GameScheduleIngestor",
@@ -54,8 +59,11 @@ __all__ = [
     "PlayerSeasonStatsIngestor",
     "PlayerTrackingIngestor",
     "PlayersIngestor",
+    "PreModernBoxScoreIngestor",
+    "RaptorIngestor",
     "SeasonIngestor",
     "ShotChartIngestor",
+    "ShufinskiyPBPIngestor",
     "TeamAdvancedStatsIngestor",
     "TeamOtherStatsIngestor",
     "create_ingestor",

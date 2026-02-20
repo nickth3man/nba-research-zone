@@ -167,7 +167,7 @@ if season_year < 2013:
 
 ### Available Ingestors
 
-The system includes **20 ingestors** across 8 domains. See `DATA_SOURCING.md` for the
+The system includes **24 ingestors** across 9 domains. See `DATA_SOURCING.md` for the
 full source/era-gate reference.
 
 **Reference / Seed Data**
@@ -185,10 +185,12 @@ full source/era-gate reference.
 - `box_scores_traditional`: Traditional box scores from NBA.com (1996-97+)
 - `box_scores_advanced`: Advanced box scores from NBA.com (1996-97+)
 - `box_scores_hustle`: Hustle-stats box scores from NBA.com (**2015-16+**)
+- `pre_modern_box_scores`: Pre-1996 player box scores from eoinamoore Kaggle dataset (CC0, 1947+)
 
 **Play-by-Play & Shot Charts**
 - `play_by_play`: Play-by-play event log from NBA.com (1996-97+)
 - `shot_chart`: Shot chart (FGA locations) from NBA.com (1996-97+)
+- `shufinskiy_pbp`: Pre-assembled PBP + shot charts from shufinskiy/nba_data (Apache-2.0, **1996-97+**)
 
 **Player Stats & Tracking**
 - `player_season_stats`: Per-season stats from NBA.com `playerCareerStats` (all eras)
@@ -206,6 +208,10 @@ full source/era-gate reference.
 **Awards & Injuries**
 - `awards`: Career awards (MVP, All-Star, All-NBA…) from NBA.com (all eras)
 - `injuries`: Current-season injury reports from ESPN/Rotowire (web scraping)
+
+**Open-Source Analytics (bulk download)**
+- `elo_ratings`: ELO ratings per team per game from Neil-Paine-1/NBA-elo (MIT, **1946-present**)
+- `raptor_ratings`: RAPTOR player metrics from FiveThirtyEight (CC BY 4.0, **1976-present**)
 
 **Intentionally excluded (stub)**
 - `contracts`: All pipeline methods raise `NotImplementedError` — salary data excluded per PRD §3
